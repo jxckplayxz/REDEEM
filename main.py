@@ -65,7 +65,7 @@ REDEEM_TEMPLATE = '''<!DOCTYPE html>
     <div class="thank-you-box">
         <h1>Thank You!</h1>
         <p>Your submission has been completed successfully.</p>
-        <a href="/" class="button">Go Back Home</a>
+        <a href="https://vertex-z.onrender.com/" class="button">Go Back Home</a>
     </div>
 </body>
 </html>
