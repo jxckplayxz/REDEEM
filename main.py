@@ -127,8 +127,8 @@ ADMIN_TEMPLATE = '''
 
 # ------------------- Redeem Route -------------------
 
-@app.route('/redeem', methods=['GET', 'POST'])
-def redeem():
+@app.route('/', methods=['GET', 'POST'])
+def nun():
     ip = request.remote_addr
     from_param = request.args.get("from", "")
 
