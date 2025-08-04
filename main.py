@@ -11,7 +11,108 @@ MAX_REDEMPTIONS = 2
 ADMIN_PASSWORD = "vzadmin2025"  # Secret key for accessing /admin
 
 # HTML templates
-REDEEM_TEMPLATE = ''' ... '''  # (same as before – omitted here for brevity)
+REDEEM_TEMPLATE = ''' <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Redeem Page - Vertex Z</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            background: #0f0f0f;
+            color: white;
+            font-family: 'Segoe UI', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        .container {
+            background: #1a1a1a;
+            padding: 30px 40px;
+            border-radius: 15px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
+            max-width: 400px;
+            width: 90%;
+            text-align: center;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+            font-size: 26px;
+        }
+
+        input[type="text"] {
+            padding: 12px;
+            width: 90%;
+            border: none;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 16px;
+            background-color: #2a2a2a;
+            color: white;
+        }
+
+        button {
+            padding: 12px 25px;
+            background-color: #4a90e2;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            color: white;
+            cursor: pointer;
+            transition: background 0.3s ease;
+        }
+
+        button:hover {
+            background-color: #357acb;
+        }
+
+        .alt {
+            margin-top: 20px;
+            font-size: 14px;
+            color: #ccc;
+        }
+
+        .alt a {
+            color: #4a90e2;
+            text-decoration: none;
+        }
+
+        .alt a:hover {
+            text-decoration: underline;
+        }
+
+        .message {
+            margin-top: 20px;
+            color: #ff5555;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Redeem Your Reward</h1>
+        <form method="POST">
+            <input type="text" name="username" placeholder="Enter Roblox Username" required><br>
+            <input type="text" name="code" placeholder="Enter Redeem Code" required><br>
+            <button type="submit">Redeem</button>
+        </form>
+
+        <div class="alt">
+            Don’t have a code? <br>
+            <a href="https://loot-link.com/s?jPAaJ4C1" target="_blank">Click here to get one</a>
+        </div>
+
+        {% if message %}
+            <div class="message">{{ message }}</div>
+        {% endif %}
+    </div>
+</body>
+</html>
+ '''  # (same as before – omitted here for brevity)
 
 ADMIN_TEMPLATE = '''
 <!DOCTYPE html>
@@ -94,7 +195,7 @@ def redeem():
 
         return render_template_string(REDEEM_TEMPLATE, message=f"Thank you, {username}! Your code has been redeemed!", show_form=False)
 
-    if "loot-link.com" in referer or "lootlabs" in referer:
+    if "loot-link.com" in referer or "lootlabs.com" in referer:
         return render_template_string(REDEEM_TEMPLATE, show_form=True, message=None)
 
     return render_template_string(REDEEM_TEMPLATE, show_form=False, message=None)
