@@ -15,88 +15,61 @@ REDEEM_TEMPLATE = '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Redeem Page - Vertex Z</title>
+    <title>Thank You!</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         body {
-            background: #0f0f0f;
-            color: white;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #1f1c2c, #928DAB);
             font-family: 'Segoe UI', sans-serif;
+            color: white;
             display: flex;
             justify-content: center;
             align-items: center;
             height: 100vh;
-            margin: 0;
-        }
-        .container {
-            background: #1a1a1a;
-            padding: 30px 40px;
-            border-radius: 15px;
-            box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
-            max-width: 400px;
-            width: 90%;
             text-align: center;
         }
-        h1 { margin-bottom: 20px; font-size: 26px; }
-        input[type="text"] {
-            padding: 12px;
-            width: 90%;
-            border: none;
-            border-radius: 6px;
+        .thank-you-box {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(10px);
+            max-width: 400px;
+        }
+        h1 {
+            font-size: 2.5rem;
             margin-bottom: 15px;
-            font-size: 16px;
-            background-color: #2a2a2a;
+        }
+        p {
+            font-size: 1.1rem;
+            margin-bottom: 30px;
+        }
+        a.button {
+            display: inline-block;
+            padding: 10px 25px;
+            background-color: #00c896;
             color: white;
-        }
-        button {
-            padding: 12px 25px;
-            background-color: #4a90e2;
-            border: none;
-            border-radius: 6px;
-            font-size: 16px;
-            color: white;
-            cursor: pointer;
-            transition: background 0.3s ease;
-        }
-        button:hover { background-color: #357acb; }
-        .alt {
-            margin-top: 20px;
-            font-size: 14px;
-            color: #ccc;
-        }
-        .alt a {
-            color: #4a90e2;
+            border-radius: 8px;
             text-decoration: none;
-        }
-        .alt a:hover { text-decoration: underline; }
-        .message {
-            margin-top: 20px;
-            color: #ff5555;
             font-weight: bold;
+            transition: 0.3s ease;
+        }
+        a.button:hover {
+            background-color: #00a87a;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Redeem Your Reward</h1>
-        {% if show_form %}
-        <form method="POST">
-            <input type="text" name="username" placeholder="Enter Roblox Username" required><br>
-            <input type="text" name="code" placeholder="Enter Redeem Code" required><br>
-            <button type="submit">Redeem</button>
-        </form>
-        {% else %}
-        <p>Don’t have a code?</p>
-        <a href="https://loot-link.com/s?jPAaJ4C1">
-            <button>Get Code</button>
-        </a>
-        {% endif %}
-        {% if message %}
-        <div class="message">{{ message }}</div>
-        {% endif %}
+    <div class="thank-you-box">
+        <h1>Thank You!</h1>
+        <p>Your submission has been completed successfully.</p>
+        <a href="/" class="button">Go Back Home</a>
     </div>
 </body>
 </html>
+
 '''
 
 ADMIN_TEMPLATE = '''
