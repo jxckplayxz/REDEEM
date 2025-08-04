@@ -1,17 +1,17 @@
-from flask import Flask, request, redirect, render_template_string
+from flask import Flask, request, redirect, render_template_string, session
 from datetime import datetime
 import os
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
-# Simulated in-memory data
 REDEEMED_USERS = []
 MAX_REDEMPTIONS = 2
-ADMIN_PASSWORD = "vzadmin2025"  # Secret key for accessing /admin
+ADMIN_PASSWORD = "vzadmin2025"
 
-# HTML templates
-REDEEM_TEMPLATE = ''' <!DOCTYPE html>
+# ------------------- HTML Templates -------------------
+
+REDEEM_TEMPLATE = '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -28,7 +28,6 @@ REDEEM_TEMPLATE = ''' <!DOCTYPE html>
             height: 100vh;
             margin: 0;
         }
-
         .container {
             background: #1a1a1a;
             padding: 30px 40px;
@@ -38,12 +37,7 @@ REDEEM_TEMPLATE = ''' <!DOCTYPE html>
             width: 90%;
             text-align: center;
         }
-
-        h1 {
-            margin-bottom: 20px;
-            font-size: 26px;
-        }
-
+        h1 { margin-bottom: 20px; font-size: 26px; }
         input[type="text"] {
             padding: 12px;
             width: 90%;
@@ -54,7 +48,6 @@ REDEEM_TEMPLATE = ''' <!DOCTYPE html>
             background-color: #2a2a2a;
             color: white;
         }
-
         button {
             padding: 12px 25px;
             background-color: #4a90e2;
@@ -65,26 +58,17 @@ REDEEM_TEMPLATE = ''' <!DOCTYPE html>
             cursor: pointer;
             transition: background 0.3s ease;
         }
-
-        button:hover {
-            background-color: #357acb;
-        }
-
+        button:hover { background-color: #357acb; }
         .alt {
             margin-top: 20px;
             font-size: 14px;
             color: #ccc;
         }
-
         .alt a {
             color: #4a90e2;
             text-decoration: none;
         }
-
-        .alt a:hover {
-            text-decoration: underline;
-        }
-
+        .alt a:hover { text-decoration: underline; }
         .message {
             margin-top: 20px;
             color: #ff5555;
@@ -95,24 +79,25 @@ REDEEM_TEMPLATE = ''' <!DOCTYPE html>
 <body>
     <div class="container">
         <h1>Redeem Your Reward</h1>
+        {% if show_form %}
         <form method="POST">
             <input type="text" name="username" placeholder="Enter Roblox Username" required><br>
             <input type="text" name="code" placeholder="Enter Redeem Code" required><br>
             <button type="submit">Redeem</button>
         </form>
-
-        <div class="alt">
-            Don’t have a code? <br>
-            <a href="https://loot-link.com/s?jPAaJ4C1" target="_blank">Click here to get one</a>
-        </div>
-
+        {% else %}
+        <p>Don’t have a code?</p>
+        <a href="https://loot-link.com/s?jPAaJ4C1">
+            <button>Get Code</button>
+        </a>
+        {% endif %}
         {% if message %}
-            <div class="message">{{ message }}</div>
+        <div class="message">{{ message }}</div>
         {% endif %}
     </div>
 </body>
 </html>
- '''  # (same as before – omitted here for brevity)
+'''
 
 ADMIN_TEMPLATE = '''
 <!DOCTYPE html>
@@ -137,9 +122,7 @@ ADMIN_TEMPLATE = '''
             padding: 10px;
             text-align: left;
         }
-        th {
-            background-color: #222;
-        }
+        th { background-color: #222; }
         tr:nth-child(even) {
             background-color: #1a1a1a;
         }
@@ -169,45 +152,62 @@ ADMIN_TEMPLATE = '''
 </html>
 '''
 
+# ------------------- Redeem Route -------------------
+
 @app.route('/redeem', methods=['GET', 'POST'])
 def redeem():
     ip = request.remote_addr
-    referer = request.headers.get("Referer", "")
+    from_param = request.args.get("from", "")
 
+    # Step 1: If redirected from Lootlink, set session flag
+    if from_param == "lootlink":
+        session["lootlink_verified"] = True
+
+    # Step 2: Check for max redemptions
     if len(REDEEMED_USERS) >= MAX_REDEMPTIONS:
-        return render_template_string(REDEEM_TEMPLATE, message="Oops! All codes have been redeemed. You can still support us by completing our LootLabs offer!", show_form=False)
+        return render_template_string(REDEEM_TEMPLATE, show_form=False, message="Oops! All codes have been redeemed. You can still support us by completing our LootLabs offer!")
 
+    # Step 3: Handle form submit
     if request.method == 'POST':
+        if not session.get("lootlink_verified"):
+            return render_template_string(REDEEM_TEMPLATE, show_form=False, message="Oops! You must complete the LootLabs link first.")
+
         if any(entry["ip"] == ip for entry in REDEEMED_USERS):
-            return render_template_string(REDEEM_TEMPLATE, message="You already redeemed a code!", show_form=False)
+            return render_template_string(REDEEM_TEMPLATE, show_form=False, message="You already redeemed a code!")
 
         username = request.form.get("username", "").strip()
         code = request.form.get("code", "").strip()
 
         if not username or not code:
-            return render_template_string(REDEEM_TEMPLATE, message="Please enter both your username and code.", show_form=True)
+            return render_template_string(REDEEM_TEMPLATE, show_form=True, message="Please fill in all fields.")
 
+        # Add to list
         REDEEMED_USERS.append({
             "username": username,
             "ip": ip,
             "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         })
 
-        return render_template_string(REDEEM_TEMPLATE, message=f"Thank you, {username}! Your code has been redeemed!", show_form=False)
+        # Clear session flag
+        session["lootlink_verified"] = False
+        return render_template_string(REDEEM_TEMPLATE, show_form=False, message=f"Thanks, {username}! Your code has been redeemed.")
 
-    if "loot-link.com" in referer or "lootlabs.com" in referer:
+    # Step 4: If GET, show form only if session is verified
+    if session.get("lootlink_verified"):
         return render_template_string(REDEEM_TEMPLATE, show_form=True, message=None)
 
     return render_template_string(REDEEM_TEMPLATE, show_form=False, message=None)
 
+# ------------------- Admin Panel -------------------
+
 @app.route('/admin')
 def admin_panel():
-    # Use query string password like /admin?key=YOURPASS
     key = request.args.get("key")
     if key != ADMIN_PASSWORD:
         return "Unauthorized", 403
-
     return render_template_string(ADMIN_TEMPLATE, redemptions=REDEEMED_USERS)
+
+# ------------------- Run App -------------------
 
 if __name__ == '__main__':
     app.run(debug=True)
