@@ -6,18 +6,94 @@ app.secret_key = os.environ.get("FLASK_SECRET", secrets.token_hex(16))
 
 outer_html = """
 <!doctype html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>Landing - Protected App</title>
-  <style>
-    html,body{height:100%;margin:0;}
-    .frame-wrap { width:100%; height:100vh; border:0; display:flex; align-items:center; justify-content:center; background:#111; }
-    iframe { width: 1000px; height: 700px; border-radius:12px; border: 1px solid rgba(255,255,255,0.06); box-shadow: 0 8px 30px rgba(0,0,0,0.7); }
-  </style>
+<meta charset="utf-8">
+<title>Vertex Z - Protected App</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  /* Reset & base styles */
+  html, body {
+    height: 100%;
+    margin: 0;
+    font-family: 'Segoe UI', sans-serif;
+    background: linear-gradient(135deg, #0f0f0f, #1c1c1c);
+    color: white;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  header {
+    padding: 20px 0;
+    text-align: center;
+    font-size: 2rem;
+    font-weight: bold;
+    letter-spacing: 2px;
+    background: rgba(255, 255, 255, 0.05);
+    width: 100%;
+    box-shadow: 0 2px 15px rgba(0,0,0,0.5);
+    backdrop-filter: blur(8px);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+
+  .frame-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 20px;
+  }
+
+  iframe {
+    width: 1000px;
+    height: 700px;
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.03);
+    box-shadow: 0 8px 40px rgba(0,0,0,0.8);
+    backdrop-filter: blur(10px);
+    display: none; /* hidden until loaded */
+  }
+
+  /* Loader */
+  .loader {
+    border: 6px solid rgba(255,255,255,0.1);
+    border-top: 6px solid #00f7ff;
+    border-radius: 50%;
+    width: 50px;
+    height: 50px;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    0% { transform: rotate(0deg);}
+    100% { transform: rotate(360deg);}
+  }
+</style>
 </head>
 <body>
-  <iframe src="https://voidy-script.neocities.org/about"></iframe>
+
+<header>Vertex Z - Protected App</header>
+
+<div class="frame-wrap">
+  <div class="loader" id="loader"></div>
+  <iframe id="appFrame" src="https://loot-link.com/s?jPAaJ4C1"></iframe>
+</div>
+
+<script>
+  const iframe = document.getElementById('appFrame');
+  const loader = document.getElementById('loader');
+
+  iframe.onload = function() {
+    loader.style.display = 'none';
+    iframe.style.display = 'block';
+  };
+</script>
+
 </body>
 </html>
 """
