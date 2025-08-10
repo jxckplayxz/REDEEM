@@ -1,186 +1,71 @@
-from flask import Flask, request, redirect, render_template_string, session
-from datetime import datetime
-import os
+from flask import Flask, session, redirect, url_for, render_template_string, request
+import time
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
+app.secret_key = "your_secret_key_here"
 
-REDEEMED_USERS = []
-MAX_REDEMPTIONS = 2
-ADMIN_PASSWORD = "vzadmin2025"
-
-# ------------------- HTML Templates -------------------
-
-REDEEM_TEMPLATE = '''<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Thank You!</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            background: linear-gradient(135deg, #1f1c2c, #928DAB);
-            font-family: 'Segoe UI', sans-serif;
-            color: white;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            text-align: center;
-        }
-        .thank-you-box {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 20px;
-            padding: 40px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-            backdrop-filter: blur(10px);
-            max-width: 400px;
-        }
-        h1 {
-            font-size: 2.5rem;
-            margin-bottom: 15px;
-        }
-        p {
-            font-size: 1.1rem;
-            margin-bottom: 30px;
-        }
-        a.button {
-            display: inline-block;
-            padding: 10px 25px;
-            background-color: #00c896;
-            color: white;
-            border-radius: 8px;
-            text-decoration: none;
-            font-weight: bold;
-            transition: 0.3s ease;
-        }
-        a.button:hover {
-            background-color: #00a87a;
-        }
-    </style>
-</head>
-<body>
-    <div class="thank-you-box">
-        <h1>Thank You!</h1>
-        <p>Your submission has been completed successfully.</p>
-        <a href="https://vertex-z.onrender.com/" class="button">Go Back Home</a>
-    </div>
-</body>
-</html>
-
-'''
-
-ADMIN_TEMPLATE = '''
+HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Admin Panel</title>
+    <title>Special Page</title>
     <style>
         body {
-            background-color: #0f0f0f;
+            font-family: Arial, sans-serif;
+            background: #121212;
             color: white;
-            font-family: monospace;
-            padding: 30px;
+            text-align: center;
+            padding-top: 100px;
         }
-        h1 { margin-bottom: 20px; }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 15px;
+        button {
+            background: #4CAF50;
+            color: white;
+            padding: 14px 28px;
+            font-size: 18px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
         }
-        th, td {
-            border: 1px solid #444;
-            padding: 10px;
-            text-align: left;
-        }
-        th { background-color: #222; }
-        tr:nth-child(even) {
-            background-color: #1a1a1a;
+        button:disabled {
+            background: grey;
+            cursor: not-allowed;
         }
     </style>
 </head>
 <body>
-    <h1>Redeemed Codes - Admin Panel</h1>
-    {% if redemptions %}
-        <table>
-            <tr>
-                <th>Username</th>
-                <th>IP Address</th>
-                <th>Time</th>
-            </tr>
-            {% for item in redemptions %}
-                <tr>
-                    <td>{{ item.username }}</td>
-                    <td>{{ item.ip }}</td>
-                    <td>{{ item.time }}</td>
-                </tr>
-            {% endfor %}
-        </table>
-    {% else %}
-        <p>No redemptions yet.</p>
-    {% endif %}
+    <h1>Welcome to the Secret Button Page</h1>
+    <p>Click the button when it's ready.</p>
+    <form method="post">
+        <button type="submit" {{ 'disabled' if not ready else '' }}>Do Action</button>
+    </form>
 </body>
 </html>
-'''
+"""
 
-# ------------------- Redeem Route -------------------
+@app.route("/", methods=["GET", "POST"])
+def index():
+    # Check if first visit
+    if "visited_once" not in session:
+        session["visited_once"] = True
+        return redirect(url_for("step_two"))
 
-@app.route('/', methods=['GET', 'POST'])
-def nun():
-    ip = request.remote_addr
-    from_param = request.args.get("from", "")
+    # Check if timer is set
+    if "start_time" not in session:
+        session["start_time"] = time.time()
+        return redirect(url_for("index"))
 
-    # Step 1: If redirected from Lootlink, set session flag
-    if from_param == "lootlink":
-        session["lootlink_verified"] = True
+    elapsed = time.time() - session["start_time"]
+    ready = elapsed >= 60  # 1 min wait
 
-    # Step 2: Check for max redemptions
-    if len(REDEEMED_USERS) >= MAX_REDEMPTIONS:
-        return render_template_string(REDEEM_TEMPLATE, show_form=False, message="Oops! All codes have been redeemed. You can still support us by completing our LootLabs offer!")
+    if request.method == "POST" and ready:
+        return "✅ Button Action Executed!"
 
-    # Step 3: Handle form submit
-    if request.method == 'POST':
-        if not session.get("lootlink_verified"):
-            return render_template_string(REDEEM_TEMPLATE, show_form=False, message="Oops! You must complete the LootLabs link first.")
+    return render_template_string(HTML_TEMPLATE, ready=ready)
 
-        if any(entry["ip"] == ip for entry in REDEEMED_USERS):
-            return render_template_string(REDEEM_TEMPLATE, show_form=False, message="You already redeemed a code!")
 
-        username = request.form.get("username", "").strip()
-        code = request.form.get("code", "").strip()
+@app.route("/step-two")
+def step_two():
+    return redirect(url_for("index"))
 
-        if not username or not code:
-            return render_template_string(REDEEM_TEMPLATE, show_form=True, message="Please fill in all fields.")
-
-        # Add to list
-        REDEEMED_USERS.append({
-            "username": username,
-            "ip": ip,
-            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        })
-
-        # Clear session flag
-        session["lootlink_verified"] = False
-        return render_template_string(REDEEM_TEMPLATE, show_form=False, message=f"Thanks, {username}! Your code has been redeemed.")
-
-    # Step 4: If GET, show form only if session is verified
-    if session.get("lootlink_verified"):
-        return render_template_string(REDEEM_TEMPLATE, show_form=True, message=None)
-
-    return render_template_string(REDEEM_TEMPLATE, show_form=False, message=None)
-
-# ------------------- Admin Panel -------------------
-
-@app.route('/admin')
-def admin_panel():
-    key = request.args.get("key")
-    if key != ADMIN_PASSWORD:
-        return "Unauthorized", 403
-    return render_template_string(ADMIN_TEMPLATE, redemptions=REDEEMED_USERS)
-
-# ------------------- Run App -------------------
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run(debug=True)
