@@ -17,9 +17,7 @@ outer_html = """
   </style>
 </head>
 <body>
-  <div class="frame-wrap">
-    <iframe src="/content" sandbox="allow-scripts allow-same-origin"></iframe>
-  </div>
+  <iframe src="https://voidy-script.neocities.org/about"></iframe>
 </body>
 </html>
 """
