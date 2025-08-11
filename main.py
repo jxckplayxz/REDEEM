@@ -35,16 +35,56 @@ landing_html = """
 </html>
 """
 
+# Captcha form
 key_form_html = """
 <!doctype html>
 <html>
-<head><title>Vertex Z - Key Required</title></head>
-<body style="background:#111; color:white; font-family:sans-serif; text-align:center; padding-top:100px;">
-<h1>Enter Access Key</h1>
-<form method="POST">
-  <input name="key" type="password" placeholder="Enter Key" style="padding:10px;">
-  <button type="submit" style="padding:10px;">Unlock</button>
-</form>
+<head>
+<title>Vertex Z - Human Verification</title>
+<style>
+  body {
+    background: #111;
+    color: white;
+    font-family: sans-serif;
+    text-align: center;
+    padding-top: 100px;
+  }
+  .captcha-box {
+    margin-top: 20px;
+    padding: 20px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 8px;
+    width: 300px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  img {
+    width: 80px;
+    height: 80px;
+    margin: 5px;
+    cursor: pointer;
+    border-radius: 6px;
+    border: 2px solid transparent;
+    transition: 0.3s;
+  }
+  img:hover {
+    border: 2px solid #00f7ff;
+  }
+</style>
+</head>
+<body>
+
+<h1>Human Verification</h1>
+<p>Click the <strong>cat</strong> to continue:</p>
+<div class="captcha-box">
+  <form method="POST">
+    <input type="hidden" name="correct" id="correctInput" value="false">
+    <img src="https://placekitten.com/80/80" onclick="document.getElementById('correctInput').value='true'; this.closest('form').submit();">
+    <img src="https://placebear.com/80/80" onclick="alert('Wrong image! Try again.')">
+    <img src="https://placebeard.it/80x80" onclick="alert('Wrong image! Try again.')">
+  </form>
+</div>
+
 </body>
 </html>
 """
@@ -52,13 +92,13 @@ key_form_html = """
 @app.route("/", methods=["GET", "POST"])
 def home():
     if request.method == "POST":
-        if request.form.get("key") == VALID_KEY:
+        if request.form.get("correct") == "true":
             session["validated"] = True
-            return redirect(url_for("landing"))
+            return redirect(url_for("getkey"))
     return render_template_string(key_form_html)
 
-@app.route("/landing")
-def landing():
+@app.route("/getkey")
+def getkey():
     if not session.get("validated"):
         return redirect(url_for("home"))
     return render_template_string(landing_html, iframe_url="https://loot-link.com/s?jPAaJ4C1")
