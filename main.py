@@ -54,8 +54,7 @@ landing_html = """
 <body>
 <header>V-Z</header>
 <div class="frame-wrap">
-  <iframe src="{{ iframe_url }}" sandbox="allow-scripts"></iframe>
-  <!-- Optional overlay to block clicks on iframe -->
+  <iframe src="{{ iframe_url }}"></iframe>
   <div id="overlay"></div>
 </div>
 </body>
