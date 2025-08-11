@@ -37,8 +37,13 @@ landing_html = """
   }
 </style>
 <script>
-  // Block right click
-  document.addEventListener('contextmenu', event => event.preventDefault());
+// Block left click
+document.addEventListener('mousedown', event => {
+  if (event.button === 0) {  // 0 = left button
+    event.preventDefault();
+  }
+});
+
 
   // Block keys for DevTools, view source, save, print, etc
   document.onkeydown = function(e) {
