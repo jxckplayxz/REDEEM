@@ -1,229 +1,148 @@
-from flask import Flask, session, request, redirect, url_for, render_template_string
-import secrets
+from flask import Flask, request, Response, render_template_string
+import requests
+from urllib.parse import quote
+from bs4 import BeautifulSoup
+import os
+import time
 
 app = Flask(__name__)
-app.secret_key = secrets.token_hex(16)
 
-landing_html = """
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>V-Z</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<style>
-  html, body {
-    margin:0; height:100%; background:#111; color:white; font-family:sans-serif;
-    -webkit-user-select:none; /* Disable text selection */
-    -moz-user-select:none;
-    -ms-user-select:none;
-    user-select:none;
-  }
-  header { text-align:center; padding:20px; font-size:2rem; background:rgba(255,255,255,0.05); }
-  .frame-wrap {
-    display:flex; justify-content:center; align-items:center; height:calc(100% - 80px);
-    position: relative;
-  }
-  iframe {
-    width:1000px; height:700px; border:0; border-radius:12px; box-shadow:0 8px 30px rgba(0,0,0,0.7);
-    pointer-events: auto;
-  }
-  /* Optional overlay to prevent clicks on iframe (comment out if annoying) */
-  #overlay {
-    position: absolute;
-    top:0; left:0; width:1000px; height:700px;
-    z-index: 10;
-    /* background: rgba(0,0,0,0); transparent */
-  }
-</style>
-<script>
-// Block left click
-document.addEventListener('mousedown', event => {
-  if (event.button === 0) {  // 0 = left button
-    event.preventDefault();
-  }
-});
+# ====== CONFIG ======
+ALLOWED_DOMAINS = {"*"}  # allow all
+PROXY_SECRET = os.environ.get("PROXY_SECRET", "changeme_secret")
+_requests = {}
 
+# ====== HELPERS ======
+def simple_rate_limit(key, limit=50, per_seconds=60):
+    now = time.time()
+    lst = _requests.get(key, [])
+    lst = [t for t in lst if now - t < per_seconds]
+    if len(lst) >= limit:
+        return False
+    lst.append(now)
+    _requests[key] = lst
+    return True
 
-  // Block keys for DevTools, view source, save, print, etc
-  document.onkeydown = function(e) {
-    // F12
-    if(e.keyCode == 123) return false;
-    // Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+Shift+C
-    if(e.ctrlKey && e.shiftKey && (e.keyCode == 73 || e.keyCode == 74 || e.keyCode == 67)) return false;
-    // Ctrl+U (view source), Ctrl+S (save), Ctrl+P (print), Ctrl+Shift+K
-    if(e.ctrlKey && (e.keyCode == 85 || e.keyCode == 83 || e.keyCode == 80 || e.keyCode == 75)) return false;
-  };
-</script>
-</head>
-<body>
-<header>V-Z</header>
-<div class="frame-wrap">
-  <iframe src="{{ iframe_url }}"></iframe>
-  <div id="overlay"></div>
-</div>
-</body>
-</html>
-"""
+def rewrite_html(body, base_url):
+    soup = BeautifulSoup(body, "html.parser")
+    from urllib.parse import urljoin
+    def rewrite_attr(tag, attr):
+        if tag.has_attr(attr):
+            val = tag[attr]
+            if val.startswith(("data:", "javascript:", "#")):
+                return
+            abs_url = urljoin(base_url, val)
+            tag[attr] = "/proxy?url=" + quote(abs_url, safe='')
+    for tag in soup.find_all(True):
+        for attribute in ("href", "src", "action", "data-src"):
+            try:
+                rewrite_attr(tag, attribute)
+            except Exception:
+                pass
+    return str(soup)
 
-key_form_html = """
+# ====== HTML ======
+INDEX_HTML = """
 <!doctype html>
 <html>
 <head>
-<title>Vertex Z - Human Verification</title>
-<style>
-  body {
-    background: #111;
-    color: white;
-    font-family: sans-serif;
-    text-align: center;
-    padding-top: 100px;
-    -webkit-user-select:none;
-    -moz-user-select:none;
-    -ms-user-select:none;
-    user-select:none;
-  }
-  .captcha-box {
-    margin-top: 20px;
-    padding: 20px;
-    background: rgba(255,255,255,0.05);
-    border-radius: 8px;
-    width: 320px;
-    margin-left: auto;
-    margin-right: auto;
-  }
-  #captcha-code {
-    font-size: 28px;
-    letter-spacing: 8px;
-    font-family: monospace;
-    user-select: none;
-    margin-bottom: 20px;
-  }
-  input[type="text"] {
-    width: 180px;
-    font-size: 18px;
-    padding: 6px 10px;
-    border-radius: 5px;
-    border: none;
-    margin-bottom: 12px;
-    text-align: center;
-  }
-  button {
-    background: #00f7ff;
-    border: none;
-    color: black;
-    font-weight: bold;
-    padding: 8px 20px;
-    border-radius: 5px;
-    cursor: pointer;
-    transition: 0.3s;
-  }
-  button:hover {
-    background: #00b2bf;
-  }
-  .error {
-    color: #ff5555;
-    margin-top: 10px;
-  }
-  .success {
-    color: #55ff55;
-    margin-top: 10px;
-  }
-</style>
-<script>
-  // Block right click
-  document.addEventListener('contextmenu', event => event.preventDefault());
-  
-  // Block DevTools and view source keys
-  document.onkeydown = function(e) {
-    if(e.keyCode == 123) return false;
-    if(e.ctrlKey && e.shiftKey && (e.keyCode == 73 || e.keyCode == 74 || e.keyCode == 67)) return false;
-    if(e.ctrlKey && (e.keyCode == 85 || e.keyCode == 83 || e.keyCode == 80 || e.keyCode == 75)) return false;
-  };
-</script>
+  <meta charset="utf-8" />
+  <title>About · Ghost</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: system-ui, sans-serif; margin:0; padding:40px; background:#f7f7f9; }
+    .card { max-width:900px; margin:40px auto; padding:28px; background:white; border-radius:12px; box-shadow:0 6px 20px rgba(0,0,0,0.06); }
+    h1 { margin:0 0 8px 0; font-size:22px; }
+    p { color:#555; line-height:1.5; }
+    .small { color:#888; font-size:13px; margin-top:14px; }
+    .ghost-frame { display:none; position:fixed; inset:60px 40px 40px 40px; background:#fff; border-radius:10px; box-shadow:0 10px 40px rgba(0,0,0,0.2); overflow:hidden; z-index:9999; }
+    .ghost-toolbar { padding:8px 12px; background:#0b1220; color:#fff; display:flex; gap:8px; align-items:center; }
+    .ghost-toolbar input { flex:1; padding:6px 8px; border-radius:6px; border:none; font-size:14px; }
+    .ghost-iframe { width:100%; height:calc(100% - 42px); border:0; display:block; }
+    #hotspot { position: fixed; right: 8px; top: 8px; width:28px; height:28px; z-index:10000; opacity:0.02; cursor:pointer; }
+    #hotspot:hover { opacity:0.06; }
+    .close-btn { background:transparent; color:#fff; border:0; font-weight:700; font-size:14px; cursor:pointer; padding:6px 10px; }
+  </style>
 </head>
 <body>
+  <div class="card">
+    <h1>About</h1>
+    <p>This is just a normal about page.</p>
+    <div class="small">Ghost Proxy</div>
+  </div>
 
-<h1>Human Verification</h1>
-<p>Type the characters you see below to continue:</p>
+  <div id="hotspot" title=" "></div>
 
-<div class="captcha-box">
-  <div id="captcha-code">Loading...</div>
-  <form id="captcha-form" autocomplete="off" method="POST">
-    <input type="hidden" name="validated" id="validatedInput" value="false">
-    <input type="text" id="captcha-input" placeholder="Type code here" required autofocus>
-    <br>
-    <button type="submit">Verify</button>
-  </form>
-  <div id="message"></div>
-</div>
+  <div id="ghost" class="ghost-frame">
+    <div class="ghost-toolbar">
+      <button class="close-btn" id="closeGhost">✕</button>
+      <input id="ghostUrl" placeholder="Enter URL to proxy" />
+      <button id="goBtn">Go</button>
+    </div>
+    <iframe id="ghostIframe" class="ghost-iframe"></iframe>
+  </div>
 
-<script>
-  const captchaCodeElem = document.getElementById('captcha-code');
-  const captchaInput = document.getElementById('captcha-input');
-  const captchaForm = document.getElementById('captcha-form');
-  const messageElem = document.getElementById('message');
-  const validatedInput = document.getElementById('validatedInput');
+  <script>
+    const hotspot = document.getElementById('hotspot');
+    const ghost = document.getElementById('ghost');
+    const closeBtn = document.getElementById('closeGhost');
+    const goBtn = document.getElementById('goBtn');
+    const ghostIframe = document.getElementById('ghostIframe');
+    const ghostUrl = document.getElementById('ghostUrl');
+    const secret = "changeme_secret"; // put your secret here
 
-  let currentCode = '';
+    hotspot.addEventListener('click', reveal);
+    document.addEventListener('keydown', e => { if (e.key.toLowerCase() === 'g') reveal(); });
 
-  function generateCode(length = 9) {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let code = '';
-    for(let i = 0; i < length; i++) {
-      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    function reveal() {
+      ghost.style.display = 'block';
+      ghostIframe.src = "/proxy?url=" + encodeURIComponent("https://example.com") + "&s=" + encodeURIComponent(secret);
     }
-    return code.match(/.{1,3}/g).join(' ');
-  }
-
-  function normalizeCode(code) {
-    return code.replace(/\s+/g, '');
-  }
-
-  function newCaptcha() {
-    currentCode = generateCode();
-    captchaCodeElem.textContent = currentCode;
-    captchaInput.value = '';
-    messageElem.textContent = '';
-    validatedInput.value = 'false';
-    captchaInput.focus();
-  }
-
-  captchaForm.addEventListener('submit', e => {
-    e.preventDefault();
-    const userInput = captchaInput.value.toUpperCase().replace(/\s+/g, '');
-    if (userInput === normalizeCode(currentCode)) {
-      messageElem.textContent = '✅ Verified! Redirecting...';
-      messageElem.className = 'success';
-      validatedInput.value = 'true';
-      captchaForm.submit();
-    } else {
-      messageElem.textContent = '❌ Wrong code. Try again.';
-      messageElem.className = 'error';
-      newCaptcha();
-    }
-  });
-
-  newCaptcha();
-</script>
-
+    closeBtn.addEventListener('click', () => { ghost.style.display = 'none'; ghostIframe.src = "about:blank"; });
+    goBtn.addEventListener('click', () => {
+      const u = ghostUrl.value.trim();
+      if (!u) return;
+      ghostIframe.src = "/proxy?url=" + encodeURIComponent(u) + "&s=" + encodeURIComponent(secret);
+    });
+  </script>
 </body>
 </html>
 """
 
-@app.route("/", methods=["GET", "POST"])
-def home():
-    if request.method == "POST":
-        if request.form.get("validated") == "true":
-            session["validated"] = True
-            return redirect(url_for("getkey"))
-    return render_template_string(key_form_html)
+# ====== ROUTES ======
+@app.route("/")
+def index():
+    return render_template_string(INDEX_HTML)
 
-@app.route("/getkey")
-def getkey():
-    if not session.get("validated"):
-        return redirect(url_for("home"))
-    return render_template_string(landing_html, iframe_url="https://loot-link.com/s?jPAaJ4C1")
+@app.route("/proxy", methods=["GET","POST"])
+def proxy():
+    url = request.args.get("url")
+    secret = request.args.get("s", "")
+    if secret != PROXY_SECRET:
+        return Response("Forbidden", status=403)
+    if not url:
+        return Response("No URL", status=400)
+    if not simple_rate_limit(request.remote_addr, limit=50, per_seconds=60):
+        return Response("Rate limit exceeded", status=429)
+
+    headers = {'User-Agent': "GhostProxy/1.0"}
+    try:
+        resp = requests.request(request.method, url, headers=headers, data=request.get_data(), timeout=15, stream=True)
+    except Exception as e:
+        return Response(f"Upstream error: {e}", status=502)
+
+    content_type = resp.headers.get("Content-Type","")
+    body = resp.content
+    if "text/html" in content_type:
+        try:
+            body = rewrite_html(resp.text, resp.url).encode(resp.encoding or "utf-8")
+            return Response(body, content_type=content_type)
+        except:
+            pass
+
+    excluded = ['content-encoding', 'content-length', 'transfer-encoding', 'connection']
+    headers_out = {k:v for k,v in resp.headers.items() if k.lower() not in excluded}
+    return Response(resp.raw.read(), headers=headers_out, status=resp.status_code)
 
 if __name__ == "__main__":
-    app.run(debug=False)
+    app.run(debug=True)
