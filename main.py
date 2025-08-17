@@ -15,12 +15,78 @@ html_panel = """
 <head>
     <title>Live Updates Admin</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 30px; background: #121212; color: #eee; }
-        h1 { color: #00ffff; }
-        .update { border: 1px solid #00ffff; padding: 10px; margin: 10px 0; border-radius: 6px; }
-        input, select { padding: 6px; margin: 5px 0; }
-        button { padding: 6px 10px; background: #00ffff; border: none; color: #000; cursor: pointer; border-radius: 4px; }
-        button:hover { background: #00cccc; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1e1e1e;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            min-height: 100vh;
+            margin: 0;
+            padding: 40px 20px;
+        }
+
+        h1 {
+            color: #00ffff;
+            margin-bottom: 30px;
+        }
+
+        form {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            max-width: 600px;
+        }
+
+        input[type="password"], textarea {
+            padding: 15px 20px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            border: none;
+            font-size: 16px;
+            outline: none;
+            width: 100%;
+        }
+
+        textarea {
+            min-height: 150px;
+            resize: vertical;
+            background: #2a2a2a;
+            color: #fff;
+        }
+
+        button {
+            padding: 15px;
+            background: linear-gradient(90deg, #00ffff, #00cccc);
+            border: none;
+            border-radius: 8px;
+            color: #000;
+            font-weight: bold;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+        }
+
+        button:hover {
+            transform: scale(1.05);
+            background: linear-gradient(90deg, #00cccc, #00aaaa);
+        }
+
+        #updates {
+            margin-top: 30px;
+            width: 100%;
+            max-width: 600px;
+        }
+
+        .update {
+            background: #2a2a2a;
+            padding: 15px 20px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            word-wrap: break-word;
+        }
     </style>
 </head>
 <body>
@@ -29,22 +95,10 @@ html_panel = """
         <input type="password" id="password" placeholder="Enter password" required>
         <button type="submit">Login</button>
     </form>
+
     <div id="adminPanel" style="display:none;">
         <form id="updateForm">
-            <input type="text" id="newUpdate" placeholder="Enter update message" required>
-            <select id="color">
-                <option value="white">White</option>
-                <option value="yellow">Yellow</option>
-                <option value="cyan">Cyan</option>
-                <option value="red">Red</option>
-                <option value="green">Green</option>
-            </select>
-            <select id="size">
-                <option value="16">Normal</option>
-                <option value="20">Large</option>
-                <option value="24">Bigger</option>
-            </select>
-            <label><input type="checkbox" id="bold"> Bold</label>
+            <textarea id="newUpdate" placeholder="Enter your message here..." required></textarea>
             <button type="submit">Add Update</button>
         </form>
         <div id="updates"></div>
@@ -73,27 +127,18 @@ html_panel = """
             data.forEach((u, i) => {
                 let div = document.createElement("div");
                 div.className = "update";
-                div.innerHTML = `<span style="color:${u.color}; font-size:${u.size}px; font-weight:${u.bold?'bold':'normal'};">${u.message}</span>
-                <button onclick="deleteUpdate(${i})">Delete</button>`;
+                div.textContent = u.message;
                 container.appendChild(div);
             });
-        }
-
-        async function deleteUpdate(index) {
-            await fetch("/delete/" + index, { method: "DELETE" });
-            fetchUpdates();
         }
 
         document.getElementById("updateForm").addEventListener("submit", async (e) => {
             e.preventDefault();
             let msg = document.getElementById("newUpdate").value;
-            let color = document.getElementById("color").value;
-            let size = parseInt(document.getElementById("size").value);
-            let bold = document.getElementById("bold").checked;
             await fetch("/add", { 
                 method: "POST", 
                 headers: {"Content-Type": "application/json"}, 
-                body: JSON.stringify({ message: msg, color: color, size: size, bold: bold }) 
+                body: JSON.stringify({ message: msg }) 
             });
             document.getElementById("newUpdate").value = "";
             fetchUpdates();
@@ -101,6 +146,7 @@ html_panel = """
     </script>
 </body>
 </html>
+
 """
 
 @app.route("/")
