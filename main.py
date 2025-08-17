@@ -1,48 +1,70 @@
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify, render_template_string, abort
 
 app = Flask(__name__)
 
-# Store updates in memory
+# Store updates in memory (can replace with file or database)
 updates = []
 
+# Password for admin panel
+ADMIN_PASSWORD = "admin21"
+
+# HTML panel with CSS formatting options
 html_panel = """
 <!DOCTYPE html>
 <html>
 <head>
     <title>Live Updates Admin</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 30px; background: #f0f2f5; }
-        h1 { text-align: center; }
-        .update { border: 1px solid #ccc; padding: 10px; margin: 10px 0; border-radius: 6px; background: #fff; }
-        button { margin-left: 5px; }
-        input, select { margin: 5px; }
+        body { font-family: Arial, sans-serif; margin: 30px; background: #121212; color: #eee; }
+        h1 { color: #00ffff; }
+        .update { border: 1px solid #00ffff; padding: 10px; margin: 10px 0; border-radius: 6px; }
+        input, select { padding: 6px; margin: 5px 0; }
+        button { padding: 6px 10px; background: #00ffff; border: none; color: #000; cursor: pointer; border-radius: 4px; }
+        button:hover { background: #00cccc; }
     </style>
 </head>
 <body>
     <h1>Live Updates Admin</h1>
-    <form id="updateForm">
-        <input type="text" id="newUpdate" placeholder="Enter update message" required>
-        <select id="textColor">
-            <option value="black">Black</option>
-            <option value="red">Red</option>
-            <option value="green">Green</option>
-            <option value="blue">Blue</option>
-            <option value="orange">Orange</option>
-            <option value="purple">Purple</option>
-        </select>
-        <select id="textSize">
-            <option value="16px">Normal</option>
-            <option value="20px">Large</option>
-            <option value="24px">Extra Large</option>
-        </select>
-        <label>
-            <input type="checkbox" id="bold"> Bold
-        </label>
-        <button type="submit">Add Update</button>
+    <form id="loginForm">
+        <input type="password" id="password" placeholder="Enter password" required>
+        <button type="submit">Login</button>
     </form>
-    <div id="updates"></div>
+    <div id="adminPanel" style="display:none;">
+        <form id="updateForm">
+            <input type="text" id="newUpdate" placeholder="Enter update message" required>
+            <select id="color">
+                <option value="white">White</option>
+                <option value="yellow">Yellow</option>
+                <option value="cyan">Cyan</option>
+                <option value="red">Red</option>
+                <option value="green">Green</option>
+            </select>
+            <select id="size">
+                <option value="16">Normal</option>
+                <option value="20">Large</option>
+                <option value="24">Bigger</option>
+            </select>
+            <label><input type="checkbox" id="bold"> Bold</label>
+            <button type="submit">Add Update</button>
+        </form>
+        <div id="updates"></div>
+    </div>
 
     <script>
+        const loginForm = document.getElementById("loginForm");
+        const adminPanel = document.getElementById("adminPanel");
+
+        loginForm.addEventListener("submit", function(e) {
+            e.preventDefault();
+            if(document.getElementById("password").value === "{{password}}") {
+                loginForm.style.display = "none";
+                adminPanel.style.display = "block";
+                fetchUpdates();
+            } else {
+                alert("Incorrect password!");
+            }
+        });
+
         async function fetchUpdates() {
             let res = await fetch("/updates.json");
             let data = await res.json();
@@ -51,14 +73,8 @@ html_panel = """
             data.forEach((u, i) => {
                 let div = document.createElement("div");
                 div.className = "update";
-                div.style.color = u.color;
-                div.style.fontSize = u.size;
-                div.style.fontWeight = u.bold ? 'bold' : 'normal';
-                div.textContent = u.text;
-                let btn = document.createElement("button");
-                btn.textContent = "Delete";
-                btn.onclick = () => deleteUpdate(i);
-                div.appendChild(btn);
+                div.innerHTML = `<span style="color:${u.color}; font-size:${u.size}px; font-weight:${u.bold?'bold':'normal'};">${u.message}</span>
+                <button onclick="deleteUpdate(${i})">Delete</button>`;
                 container.appendChild(div);
             });
         }
@@ -70,20 +86,18 @@ html_panel = """
 
         document.getElementById("updateForm").addEventListener("submit", async (e) => {
             e.preventDefault();
-            let text = document.getElementById("newUpdate").value;
-            let color = document.getElementById("textColor").value;
-            let size = document.getElementById("textSize").value;
+            let msg = document.getElementById("newUpdate").value;
+            let color = document.getElementById("color").value;
+            let size = parseInt(document.getElementById("size").value);
             let bold = document.getElementById("bold").checked;
             await fetch("/add", { 
                 method: "POST", 
                 headers: {"Content-Type": "application/json"}, 
-                body: JSON.stringify({ text, color, size, bold }) 
+                body: JSON.stringify({ message: msg, color: color, size: size, bold: bold }) 
             });
             document.getElementById("newUpdate").value = "";
             fetchUpdates();
         });
-
-        fetchUpdates();
     </script>
 </body>
 </html>
@@ -91,14 +105,16 @@ html_panel = """
 
 @app.route("/")
 def admin_panel():
-    return render_template_string(html_panel)
+    return render_template_string(html_panel, password=ADMIN_PASSWORD)
 
 @app.route("/updates.json", methods=["GET"])
 def get_updates_json():
-    # Return latest update with formatting
+    # Only allow requests from Roblox script by checking User-Agent or custom header
+    if request.headers.get("User-Agent") != "Roblox":
+        return jsonify({"message": "Unauthorized"}), 403
     if updates:
         return jsonify(updates[-1])
-    return jsonify({"text": "No updates yet.", "color": "black", "size": "16px", "bold": False})
+    return jsonify({"message": "No updates yet.", "color":"white","size":16,"bold":False})
 
 @app.route("/add", methods=["POST"])
 def add_update():
