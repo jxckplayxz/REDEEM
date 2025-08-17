@@ -134,6 +134,22 @@ def delete_update(index):
     if 0 <= index < len(updates):
         updates.pop(index)
     return jsonify({"success": True})
+    
+latest_message = {"message": "No messages yet."}
+
+@app.route("/send_message", methods=["POST"])
+def send_message():
+    global latest_message
+    data = request.get_json()
+    if "message" in data:
+        latest_message = {"message": data["message"]}
+        return jsonify({"status": "success"}), 200
+    return jsonify({"status": "error"}), 400
+
+@app.route("/updates.json", methods=["GET"])
+def get_updates():
+    return jsonify(latest_message)
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
