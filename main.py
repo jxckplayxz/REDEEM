@@ -1,8 +1,7 @@
-from flask import Flask, request, jsonify, render_template_string, abort
+from flask import Flask, request, jsonify, render_template_string
 
 app = Flask(__name__)
 
-# Store updates in memory (can replace with file or database)
 updates = []
 
 # Password for admin panel
@@ -57,7 +56,7 @@ html_panel = """
         }
 
         textarea {
-            min-height: 120px;
+            min-height: 80px;
             resize: vertical;
         }
 
@@ -122,19 +121,6 @@ html_panel = """
             word-wrap: break-word;
             box-shadow: 0 0 8px rgba(0, 255, 255, 0.2);
         }
-
-        /* Scrollbar style */
-        #updates::-webkit-scrollbar, #previousMessages::-webkit-scrollbar {
-            width: 8px;
-        }
-        #updates::-webkit-scrollbar-thumb, #previousMessages::-webkit-scrollbar-thumb {
-            background-color: #00cccc;
-            border-radius: 8px;
-        }
-        #updates::-webkit-scrollbar-track, #previousMessages::-webkit-scrollbar-track {
-            background: #1e1e1e;
-        }
-
     </style>
 </head>
 <body>
@@ -148,7 +134,8 @@ html_panel = """
         <div class="section">
             <h2>Add New Update</h2>
             <form id="updateForm">
-                <textarea id="newUpdate" placeholder="Enter your message here..." required></textarea>
+                <textarea id="newUpdate" placeholder="Enter update text..." required></textarea>
+                <textarea id="newNotification" placeholder="Enter notification text (optional)"></textarea>
                 <button type="submit">Add Update</button>
             </form>
         </div>
@@ -186,36 +173,40 @@ html_panel = """
             const previousContainer = document.getElementById("previousMessages");
             container.innerHTML = "";
             previousContainer.innerHTML = "";
-            data.forEach((u, i) => {
-                let div = document.createElement("div");
-                div.className = "update";
-                div.textContent = u.message;
-                container.appendChild(div);
 
-                // For previous messages, reverse order
-                let prevDiv = document.createElement("div");
-                prevDiv.className = "update";
-                prevDiv.textContent = u.message;
-                previousContainer.prepend(prevDiv);
-            });
+            if (Array.isArray(data) && data.length > 0) {
+                data.forEach((u) => {
+                    let div = document.createElement("div");
+                    div.className = "update";
+                    div.textContent = "Update: " + u.message + (u.notification ? " | Notification: " + u.notification : "");
+                    container.appendChild(div);
+
+                    let prevDiv = document.createElement("div");
+                    prevDiv.className = "update";
+                    prevDiv.textContent = "Update: " + u.message + (u.notification ? " | Notification: " + u.notification : "");
+                    previousContainer.prepend(prevDiv);
+                });
+            } else {
+                container.innerHTML = "<div class='update'>No updates yet.</div>";
+            }
         }
 
         document.getElementById("updateForm").addEventListener("submit", async (e) => {
             e.preventDefault();
             let msg = document.getElementById("newUpdate").value;
+            let notif = document.getElementById("newNotification").value;
             await fetch("/add", { 
                 method: "POST", 
                 headers: {"Content-Type": "application/json"}, 
-                body: JSON.stringify({ message: msg }) 
+                body: JSON.stringify({ message: msg, notification: notif }) 
             });
             document.getElementById("newUpdate").value = "";
+            document.getElementById("newNotification").value = "";
             fetchUpdates();
         });
     </script>
 </body>
 </html>
-
-
 """
 
 @app.route("/")
@@ -224,42 +215,16 @@ def admin_panel():
 
 @app.route("/updates.json", methods=["GET"])
 def get_updates_json():
-
-    if updates:
-        # Return only the latest update
-        return jsonify(updates[-1])
-    
-    # If no updates exist yet
-    return jsonify({
-        "message": "No updates yet.",
-        "color": "white",
-        "size": 16,
-        "bold": False
-    })
-
+    return jsonify(updates)
 
 @app.route("/add", methods=["POST"])
 def add_update():
     data = request.get_json()
-    updates.append(data)
+    updates.append({
+        "message": data.get("message", ""),
+        "notification": data.get("notification", "")  # can be blank
+    })
     return jsonify({"success": True})
-
-@app.route("/delete/<int:index>", methods=["DELETE"])
-def delete_update(index):
-    if 0 <= index < len(updates):
-        updates.pop(index)
-    return jsonify({"success": True})
-    
-latest_message = {"message": "No messages yet."}
-
-@app.route("/send_message", methods=["POST"])
-def send_message():
-    data = request.json
-    msg = data.get("message")
-    if msg:
-        updates.append(msg)
-        return jsonify({"status": "success"}), 200
-    return jsonify({"status": "error", "message": "No message sent"}), 400
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(debug=True)
