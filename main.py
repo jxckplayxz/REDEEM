@@ -15,53 +15,57 @@ html_panel = """
 <head>
     <title>Live Updates Admin</title>
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #1e1e1e;
-            color: #ffffff;
+            font-family: 'Inter', sans-serif;
+            background: #121212;
+            color: #fff;
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: flex-start;
-            min-height: 100vh;
-            margin: 0;
             padding: 40px 20px;
+            margin: 0;
+            min-height: 100vh;
         }
 
         h1 {
             color: #00ffff;
-            margin-bottom: 30px;
+            margin-bottom: 20px;
+            font-size: 2.2rem;
+            text-shadow: 0 0 8px #00ffff;
         }
 
         form {
             display: flex;
             flex-direction: column;
             width: 100%;
-            max-width: 600px;
+            max-width: 700px;
         }
 
         input[type="password"], textarea {
             padding: 15px 20px;
             margin-bottom: 15px;
-            border-radius: 8px;
+            border-radius: 12px;
             border: none;
             font-size: 16px;
             outline: none;
             width: 100%;
+            background: #1e1e1e;
+            color: #fff;
+            box-shadow: inset 0 0 8px #000;
         }
 
         textarea {
-            min-height: 150px;
+            min-height: 120px;
             resize: vertical;
-            background: #2a2a2a;
-            color: #fff;
         }
 
         button {
             padding: 15px;
             background: linear-gradient(90deg, #00ffff, #00cccc);
             border: none;
-            border-radius: 8px;
+            border-radius: 12px;
             color: #000;
             font-weight: bold;
             font-size: 16px;
@@ -74,19 +78,63 @@ html_panel = """
             background: linear-gradient(90deg, #00cccc, #00aaaa);
         }
 
-        #updates {
-            margin-top: 30px;
+        #adminPanel {
             width: 100%;
-            max-width: 600px;
+            max-width: 700px;
+            margin-top: 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        #updateForm {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .section {
+            background: #1f1f1f;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.1);
+        }
+
+        .section h2 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            font-size: 1.5rem;
+            color: #00ffff;
+            text-shadow: 0 0 6px #00ffff;
+        }
+
+        #updates, #previousMessages {
+            max-height: 250px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
         }
 
         .update {
             background: #2a2a2a;
-            padding: 15px 20px;
-            margin-bottom: 15px;
-            border-radius: 8px;
+            padding: 12px 18px;
+            border-radius: 12px;
             word-wrap: break-word;
+            box-shadow: 0 0 8px rgba(0, 255, 255, 0.2);
         }
+
+        /* Scrollbar style */
+        #updates::-webkit-scrollbar, #previousMessages::-webkit-scrollbar {
+            width: 8px;
+        }
+        #updates::-webkit-scrollbar-thumb, #previousMessages::-webkit-scrollbar-thumb {
+            background-color: #00cccc;
+            border-radius: 8px;
+        }
+        #updates::-webkit-scrollbar-track, #previousMessages::-webkit-scrollbar-track {
+            background: #1e1e1e;
+        }
+
     </style>
 </head>
 <body>
@@ -97,11 +145,23 @@ html_panel = """
     </form>
 
     <div id="adminPanel" style="display:none;">
-        <form id="updateForm">
-            <textarea id="newUpdate" placeholder="Enter your message here..." required></textarea>
-            <button type="submit">Add Update</button>
-        </form>
-        <div id="updates"></div>
+        <div class="section">
+            <h2>Add New Update</h2>
+            <form id="updateForm">
+                <textarea id="newUpdate" placeholder="Enter your message here..." required></textarea>
+                <button type="submit">Add Update</button>
+            </form>
+        </div>
+
+        <div class="section">
+            <h2>Recent Updates</h2>
+            <div id="updates"></div>
+        </div>
+
+        <div class="section">
+            <h2>Previous Messages</h2>
+            <div id="previousMessages"></div>
+        </div>
     </div>
 
     <script>
@@ -112,7 +172,7 @@ html_panel = """
             e.preventDefault();
             if(document.getElementById("password").value === "{{password}}") {
                 loginForm.style.display = "none";
-                adminPanel.style.display = "block";
+                adminPanel.style.display = "flex";
                 fetchUpdates();
             } else {
                 alert("Incorrect password!");
@@ -122,13 +182,21 @@ html_panel = """
         async function fetchUpdates() {
             let res = await fetch("/updates.json");
             let data = await res.json();
-            let container = document.getElementById("updates");
+            const container = document.getElementById("updates");
+            const previousContainer = document.getElementById("previousMessages");
             container.innerHTML = "";
+            previousContainer.innerHTML = "";
             data.forEach((u, i) => {
                 let div = document.createElement("div");
                 div.className = "update";
                 div.textContent = u.message;
                 container.appendChild(div);
+
+                // For previous messages, reverse order
+                let prevDiv = document.createElement("div");
+                prevDiv.className = "update";
+                prevDiv.textContent = u.message;
+                previousContainer.prepend(prevDiv);
             });
         }
 
@@ -146,6 +214,7 @@ html_panel = """
     </script>
 </body>
 </html>
+
 
 """
 
