@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify, render_template_string
 
 app = Flask(__name__)
 
-# Store updates in memory (you can replace with file or database later)
+# Store updates in memory (can replace with file or database later)
 updates = []
 
 # HTML panel for adding/deleting updates
@@ -27,7 +27,7 @@ html_panel = """
 
     <script>
         async function fetchUpdates() {
-            let res = await fetch("/updates");
+            let res = await fetch("/updates.json");
             let data = await res.json();
             let container = document.getElementById("updates");
             container.innerHTML = "";
@@ -69,9 +69,12 @@ html_panel = """
 def admin_panel():
     return render_template_string(html_panel)
 
-@app.route("/updates", methods=["GET"])
-def get_updates():
-    return jsonify(updates)
+@app.route("/updates.json", methods=["GET"])
+def get_updates_json():
+    # Only return the latest update as a JSON object for Roblox script
+    if updates:
+        return jsonify({"message": updates[-1]})
+    return jsonify({"message": "No updates yet."})
 
 @app.route("/add", methods=["POST"])
 def add_update():
