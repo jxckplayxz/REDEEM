@@ -2,25 +2,42 @@ from flask import Flask, request, jsonify, render_template_string
 
 app = Flask(__name__)
 
-# Store updates in memory (can replace with file or database later)
+# Store updates in memory
 updates = []
 
-# HTML panel for adding/deleting updates
 html_panel = """
 <!DOCTYPE html>
 <html>
 <head>
     <title>Live Updates Admin</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 30px; }
-        .update { border: 1px solid #ccc; padding: 10px; margin: 10px 0; border-radius: 6px; }
+        body { font-family: Arial, sans-serif; margin: 30px; background: #f0f2f5; }
+        h1 { text-align: center; }
+        .update { border: 1px solid #ccc; padding: 10px; margin: 10px 0; border-radius: 6px; background: #fff; }
         button { margin-left: 5px; }
+        input, select { margin: 5px; }
     </style>
 </head>
 <body>
     <h1>Live Updates Admin</h1>
     <form id="updateForm">
         <input type="text" id="newUpdate" placeholder="Enter update message" required>
+        <select id="textColor">
+            <option value="black">Black</option>
+            <option value="red">Red</option>
+            <option value="green">Green</option>
+            <option value="blue">Blue</option>
+            <option value="orange">Orange</option>
+            <option value="purple">Purple</option>
+        </select>
+        <select id="textSize">
+            <option value="16px">Normal</option>
+            <option value="20px">Large</option>
+            <option value="24px">Extra Large</option>
+        </select>
+        <label>
+            <input type="checkbox" id="bold"> Bold
+        </label>
         <button type="submit">Add Update</button>
     </form>
     <div id="updates"></div>
@@ -34,10 +51,14 @@ html_panel = """
             data.forEach((u, i) => {
                 let div = document.createElement("div");
                 div.className = "update";
-                div.innerHTML = `
-                    ${u} 
-                    <button onclick="deleteUpdate(${i})">Delete</button>
-                `;
+                div.style.color = u.color;
+                div.style.fontSize = u.size;
+                div.style.fontWeight = u.bold ? 'bold' : 'normal';
+                div.textContent = u.text;
+                let btn = document.createElement("button");
+                btn.textContent = "Delete";
+                btn.onclick = () => deleteUpdate(i);
+                div.appendChild(btn);
                 container.appendChild(div);
             });
         }
@@ -49,11 +70,14 @@ html_panel = """
 
         document.getElementById("updateForm").addEventListener("submit", async (e) => {
             e.preventDefault();
-            let msg = document.getElementById("newUpdate").value;
+            let text = document.getElementById("newUpdate").value;
+            let color = document.getElementById("textColor").value;
+            let size = document.getElementById("textSize").value;
+            let bold = document.getElementById("bold").checked;
             await fetch("/add", { 
                 method: "POST", 
                 headers: {"Content-Type": "application/json"}, 
-                body: JSON.stringify({ update: msg }) 
+                body: JSON.stringify({ text, color, size, bold }) 
             });
             document.getElementById("newUpdate").value = "";
             fetchUpdates();
@@ -71,15 +95,15 @@ def admin_panel():
 
 @app.route("/updates.json", methods=["GET"])
 def get_updates_json():
-    # Only return the latest update as a JSON object for Roblox script
+    # Return latest update with formatting
     if updates:
-        return jsonify({"message": updates[-1]})
-    return jsonify({"message": "No updates yet."})
+        return jsonify(updates[-1])
+    return jsonify({"text": "No updates yet.", "color": "black", "size": "16px", "bold": False})
 
 @app.route("/add", methods=["POST"])
 def add_update():
     data = request.get_json()
-    updates.append(data["update"])
+    updates.append(data)
     return jsonify({"success": True})
 
 @app.route("/delete/<int:index>", methods=["DELETE"])
