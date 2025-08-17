@@ -109,12 +109,19 @@ def admin_panel():
 
 @app.route("/updates.json", methods=["GET"])
 def get_updates_json():
-    # Only allow requests from Roblox script by checking User-Agent or custom header
-    if request.headers.get("User-Agent") != "Roblox":
-        return jsonify({"message": "Unauthorized"}), 403
+
     if updates:
+        # Return only the latest update
         return jsonify(updates[-1])
-    return jsonify({"message": "No updates yet.", "color":"white","size":16,"bold":False})
+    
+    # If no updates exist yet
+    return jsonify({
+        "message": "No updates yet.",
+        "color": "white",
+        "size": 16,
+        "bold": False
+    })
+
 
 @app.route("/add", methods=["POST"])
 def add_update():
