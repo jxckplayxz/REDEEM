@@ -1,31 +1,89 @@
-# chat_api.py
-from flask import Flask, request, jsonify
-from datetime import datetime
+from flask import Flask, request, jsonify, render_template_string
 
 app = Flask(__name__)
 
-messages = []  # store all chat messages
+# Store updates in memory (you can replace with file or database later)
+updates = []
 
-@app.route("/send", methods=["POST"])
-def send_message():
-    data = request.json
-    user = data.get("user")
-    text = data.get("text")
+# HTML panel for adding/deleting updates
+html_panel = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Live Updates Admin</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 30px; }
+        .update { border: 1px solid #ccc; padding: 10px; margin: 10px 0; border-radius: 6px; }
+        button { margin-left: 5px; }
+    </style>
+</head>
+<body>
+    <h1>Live Updates Admin</h1>
+    <form id="updateForm">
+        <input type="text" id="newUpdate" placeholder="Enter update message" required>
+        <button type="submit">Add Update</button>
+    </form>
+    <div id="updates"></div>
 
-    if not user or not text:
-        return jsonify({"error": "Invalid data"}), 400
+    <script>
+        async function fetchUpdates() {
+            let res = await fetch("/updates");
+            let data = await res.json();
+            let container = document.getElementById("updates");
+            container.innerHTML = "";
+            data.forEach((u, i) => {
+                let div = document.createElement("div");
+                div.className = "update";
+                div.innerHTML = `
+                    ${u} 
+                    <button onclick="deleteUpdate(${i})">Delete</button>
+                `;
+                container.appendChild(div);
+            });
+        }
 
-    msg = {
-        "user": user,
-        "text": text,
-        "time": datetime.now().strftime("%H:%M:%S")
-    }
-    messages.append(msg)
-    return jsonify({"success": True, "message": msg})
+        async function deleteUpdate(index) {
+            await fetch("/delete/" + index, { method: "DELETE" });
+            fetchUpdates();
+        }
 
-@app.route("/messages", methods=["GET"])
-def get_messages():
-    return jsonify(messages[-50:])  # send only last 50 for performance
+        document.getElementById("updateForm").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            let msg = document.getElementById("newUpdate").value;
+            await fetch("/add", { 
+                method: "POST", 
+                headers: {"Content-Type": "application/json"}, 
+                body: JSON.stringify({ update: msg }) 
+            });
+            document.getElementById("newUpdate").value = "";
+            fetchUpdates();
+        });
+
+        fetchUpdates();
+    </script>
+</body>
+</html>
+"""
+
+@app.route("/")
+def admin_panel():
+    return render_template_string(html_panel)
+
+@app.route("/updates", methods=["GET"])
+def get_updates():
+    return jsonify(updates)
+
+@app.route("/add", methods=["POST"])
+def add_update():
+    data = request.get_json()
+    updates.append(data["update"])
+    return jsonify({"success": True})
+
+@app.route("/delete/<int:index>", methods=["DELETE"])
+def delete_update(index):
+    if 0 <= index < len(updates):
+        updates.pop(index)
+    return jsonify({"success": True})
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=5000, debug=True)
