@@ -220,10 +220,11 @@ def get_updates_json():
 @app.route("/add", methods=["POST"])
 def add_update():
     data = request.get_json()
-    updates.append({
-        "message": data.get("message", ""),
-        "notification": data.get("notification", "")  # can be blank
-    })
+    update = {"message": data.get("message", "")}
+    notif = data.get("notification", "")
+    if notif.strip():  # only save if not blank
+        update["notification"] = notif
+    updates.append(update)
     return jsonify({"success": True})
 
 if __name__ == "__main__":
