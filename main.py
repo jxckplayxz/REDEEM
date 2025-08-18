@@ -215,7 +215,10 @@ def admin_panel():
 
 @app.route("/updates.json", methods=["GET"])
 def get_updates_json():
-    return jsonify(updates)
+    if updates:
+        return jsonify(updates[-1])  # send only the latest update
+    return jsonify({"message": "", "notification": ""})
+
 
 @app.route("/add", methods=["POST"])
 def add_update():
