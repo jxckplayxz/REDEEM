@@ -134,7 +134,7 @@ html_panel = """
         <div class="section">
             <h2>Add New Update</h2>
             <form id="updateForm">
-                <textarea id="newUpdate" placeholder="Enter update text..." required></textarea>
+                <textarea id="newUpdate" placeholder="Enter update text..."></textarea>
                 <textarea id="newNotification" placeholder="Enter notification text (optional)"></textarea>
                 <button type="submit">Add Update</button>
             </form>
