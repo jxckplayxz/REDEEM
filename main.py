@@ -1,234 +1,117 @@
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, redirect, render_template_string, session
+import sqlite3, random, string, time
 
 app = Flask(__name__)
+app.secret_key = "super_secret"  # change this
 
-updates = []
+DB_FILE = "whitelist.db"
 
-# Password for admin panel
-ADMIN_PASSWORD = "admin21"
+# Initialize DB
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS whitelist (
+                    username TEXT,
+                    key TEXT,
+                    expiry INTEGER
+                )''')
+    conn.commit()
+    conn.close()
 
-# HTML panel with CSS formatting options
-html_panel = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Live Updates Admin</title>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+init_db()
 
-        body {
-            font-family: 'Inter', sans-serif;
-            background: #121212;
-            color: #fff;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 40px 20px;
-            margin: 0;
-            min-height: 100vh;
-        }
+def generate_key(username):
+    rand_nums = ''.join(random.choices(string.digits, k=5))
+    return f"{username}_{rand_nums}"
 
-        h1 {
-            color: #00ffff;
-            margin-bottom: 20px;
-            font-size: 2.2rem;
-            text-shadow: 0 0 8px #00ffff;
-        }
+@app.route("/getkey/<username>")
+def getkey(username):
+    key = generate_key(username)
+    expiry = int(time.time()) + (35 * 3600)  # 35 hours
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("INSERT INTO whitelist VALUES (?, ?, ?)", (username, key, expiry))
+    conn.commit()
+    conn.close()
+    # redirect user to lootlink with their key encoded
+    return redirect(f"https://loot-link.com/task?return_url=http://yourdomain.com/whitelist/{key}")
 
-        form {
-            display: flex;
-            flex-direction: column;
-            width: 100%;
-            max-width: 700px;
-        }
+@app.route("/whitelist/<key>")
+def whitelist(key):
+    # validate referer (anti-bypass)
+    referer = request.headers.get("Referer", "")
+    if "loot-link.com" not in referer and "lootlabs.net" not in referer:
+        return "⚠️ Please complete our key system first!"
 
-        input[type="password"], textarea {
-            padding: 15px 20px;
-            margin-bottom: 15px;
-            border-radius: 12px;
-            border: none;
-            font-size: 16px;
-            outline: none;
-            width: 100%;
-            background: #1e1e1e;
-            color: #fff;
-            box-shadow: inset 0 0 8px #000;
-        }
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT username, expiry FROM whitelist WHERE key=?", (key,))
+    row = c.fetchone()
+    conn.close()
 
-        textarea {
-            min-height: 80px;
-            resize: vertical;
-        }
+    if not row:
+        return "❌ Invalid key!"
+    username, expiry = row
+    if int(time.time()) > expiry:
+        return "⏰ Key expired! Please get a new one."
 
-        button {
-            padding: 15px;
-            background: linear-gradient(90deg, #00ffff, #00cccc);
-            border: none;
-            border-radius: 12px;
-            color: #000;
-            font-weight: bold;
-            font-size: 16px;
-            cursor: pointer;
-            transition: all 0.2s ease-in-out;
-        }
+    # HTML squircle UI
+    html = f"""
+    <html>
+    <head>
+      <style>
+        body {{
+          background: #111;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          height: 100vh;
+          font-family: Arial, sans-serif;
+        }}
+        .squircle {{
+          background: #222;
+          padding: 40px;
+          border-radius: 30% / 20%;
+          text-align: center;
+          color: white;
+          box-shadow: 0 0 20px rgba(0,255,255,0.5);
+        }}
+        button {{
+          background: cyan;
+          border: none;
+          padding: 10px 20px;
+          border-radius: 10px;
+          font-size: 16px;
+          cursor: pointer;
+        }}
+      </style>
+    </head>
+    <body>
+      <div class="squircle">
+        <h2>Your Key</h2>
+        <p><b>{key}</b></p>
+        <form method="POST" action="/validate/{key}">
+            <button type="submit">Whitelist Me</button>
+        </form>
+        <p>✅ Your key will expire in 35 hours.</p>
+      </div>
+    </body>
+    </html>
+    """
+    return html
 
-        button:hover {
-            transform: scale(1.05);
-            background: linear-gradient(90deg, #00cccc, #00aaaa);
-        }
+@app.route("/validate/<key>", methods=["POST"])
+def validate(key):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT username, expiry FROM whitelist WHERE key=?", (key,))
+    row = c.fetchone()
+    conn.close()
 
-        #adminPanel {
-            width: 100%;
-            max-width: 700px;
-            margin-top: 30px;
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-        }
+    if not row:
+        return "❌ Invalid key!"
+    username, expiry = row
+    if int(time.time()) > expiry:
+        return "⏰ Key expired!"
 
-        #updateForm {
-            display: flex;
-            flex-direction: column;
-        }
-
-        .section {
-            background: #1f1f1f;
-            padding: 20px;
-            border-radius: 15px;
-            box-shadow: 0 0 15px rgba(0, 255, 255, 0.1);
-        }
-
-        .section h2 {
-            margin-top: 0;
-            margin-bottom: 15px;
-            font-size: 1.5rem;
-            color: #00ffff;
-            text-shadow: 0 0 6px #00ffff;
-        }
-
-        #updates, #previousMessages {
-            max-height: 250px;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        .update {
-            background: #2a2a2a;
-            padding: 12px 18px;
-            border-radius: 12px;
-            word-wrap: break-word;
-            box-shadow: 0 0 8px rgba(0, 255, 255, 0.2);
-        }
-    </style>
-</head>
-<body>
-    <h1>Live Updates Admin</h1>
-    <form id="loginForm">
-        <input type="password" id="password" placeholder="Enter password" required>
-        <button type="submit">Login</button>
-    </form>
-
-    <div id="adminPanel" style="display:none;">
-        <div class="section">
-            <h2>Add New Update</h2>
-            <form id="updateForm">
-                <textarea id="newUpdate" placeholder="Enter update text..."></textarea>
-                <textarea id="newNotification" placeholder="Enter notification text (optional)"></textarea>
-                <button type="submit">Add Update</button>
-            </form>
-        </div>
-
-        <div class="section">
-            <h2>Recent Updates</h2>
-            <div id="updates"></div>
-        </div>
-
-        <div class="section">
-            <h2>Previous Messages</h2>
-            <div id="previousMessages"></div>
-        </div>
-    </div>
-
-    <script>
-        const loginForm = document.getElementById("loginForm");
-        const adminPanel = document.getElementById("adminPanel");
-
-        loginForm.addEventListener("submit", function(e) {
-            e.preventDefault();
-            if(document.getElementById("password").value === "{{password}}") {
-                loginForm.style.display = "none";
-                adminPanel.style.display = "flex";
-                fetchUpdates();
-            } else {
-                alert("Incorrect password!");
-            }
-        });
-
-        async function fetchUpdates() {
-            let res = await fetch("/updates.json");
-            let data = await res.json();
-            const container = document.getElementById("updates");
-            const previousContainer = document.getElementById("previousMessages");
-            container.innerHTML = "";
-            previousContainer.innerHTML = "";
-
-            if (Array.isArray(data) && data.length > 0) {
-                data.forEach((u) => {
-                    let div = document.createElement("div");
-                    div.className = "update";
-                    div.textContent = "Update: " + u.message + (u.notification ? " | Notification: " + u.notification : "");
-                    container.appendChild(div);
-
-                    let prevDiv = document.createElement("div");
-                    prevDiv.className = "update";
-                    prevDiv.textContent = "Update: " + u.message + (u.notification ? " | Notification: " + u.notification : "");
-                    previousContainer.prepend(prevDiv);
-                });
-            } else {
-                container.innerHTML = "<div class='update'>No updates yet.</div>";
-            }
-        }
-
-        document.getElementById("updateForm").addEventListener("submit", async (e) => {
-            e.preventDefault();
-            let msg = document.getElementById("newUpdate").value;
-            let notif = document.getElementById("newNotification").value;
-            await fetch("/add", { 
-                method: "POST", 
-                headers: {"Content-Type": "application/json"}, 
-                body: JSON.stringify({ message: msg, notification: notif }) 
-            });
-            document.getElementById("newUpdate").value = "";
-            document.getElementById("newNotification").value = "";
-            fetchUpdates();
-        });
-    </script>
-</body>
-</html>
-"""
-
-@app.route("/")
-def admin_panel():
-    return render_template_string(html_panel, password=ADMIN_PASSWORD)
-
-@app.route("/updates.json", methods=["GET"])
-def get_updates_json():
-    if updates:
-        return jsonify(updates[-1])  # send only the latest update
-    return jsonify({"message": "", "notification": ""})
-
-
-@app.route("/add", methods=["POST"])
-def add_update():
-    data = request.get_json()
-    update = {"message": data.get("message", "")}
-    notif = data.get("notification", "")
-    if notif.strip():  # only save if not blank
-        update["notification"] = notif
-    updates.append(update)
-    return jsonify({"success": True})
-
-if __name__ == "__main__":
-    app.run(debug=True)
+    return f"✅ {username} has been whitelisted successfully!"
