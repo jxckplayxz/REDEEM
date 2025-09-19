@@ -64,7 +64,7 @@ def home():
       <div class="container">
         <h1>VERTEX Z</h1>
         <p>Click below to get your key</p>
-        <a href="https://lootdest.org/s?zsW5sQch" target="_blank" class="btn">Get Key</a>
+        <a href="https://lootdest.org/s?yDSjABS3" target="_blank" class="btn">Get Key</a>
       </div>
     </body>
     </html>
