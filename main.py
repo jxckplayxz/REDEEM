@@ -1,117 +1,137 @@
-from flask import Flask, request, redirect, render_template_string, session
-import sqlite3, random, string, time
+from flask import Flask, request, render_template_string, jsonify
+import os, json, random, time
 
 app = Flask(__name__)
-app.secret_key = "super_secret"  # change this
 
-DB_FILE = "whitelist.db"
+DB_FILE = "keys.json"
+ALLOWED_SOURCES = ["lootdest.org", "loot-link.com", "lootlabs.net"]
+DEFAULT_EXPIRY_HOURS = 35
 
-# Initialize DB
-def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS whitelist (
-                    username TEXT,
-                    key TEXT,
-                    expiry INTEGER
-                )''')
-    conn.commit()
-    conn.close()
+def load_db():
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
 
-init_db()
+def save_db(db):
+    with open(DB_FILE, "w") as f:
+        json.dump(db, f)
 
-def generate_key(username):
-    rand_nums = ''.join(random.choices(string.digits, k=5))
-    return f"{username}_{rand_nums}"
+def generate_key(n=12):
+    return ''.join(random.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") for _ in range(n))
 
-@app.route("/getkey/<username>")
-def getkey(username):
-    key = generate_key(username)
-    expiry = int(time.time()) + (35 * 3600)  # 35 hours
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("INSERT INTO whitelist VALUES (?, ?, ?)", (username, key, expiry))
-    conn.commit()
-    conn.close()
-    # redirect user to lootlink with their key encoded
-    return redirect(f"https://loot-link.com/task?return_url=http://yourdomain.com/whitelist/{key}")
-
-@app.route("/whitelist/<key>")
-def whitelist(key):
-    # validate referer (anti-bypass)
-    referer = request.headers.get("Referer", "")
-    if "loot-link.com" not in referer and "lootlabs.net" not in referer:
-        return "⚠️ Please complete our key system first!"
-
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT username, expiry FROM whitelist WHERE key=?", (key,))
-    row = c.fetchone()
-    conn.close()
-
-    if not row:
-        return "❌ Invalid key!"
-    username, expiry = row
-    if int(time.time()) > expiry:
-        return "⏰ Key expired! Please get a new one."
-
-    # HTML squircle UI
-    html = f"""
-    <html>
+@app.route("/")
+def home():
+    return """
+    <!DOCTYPE html>
+    <html lang="en">
     <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>VERTEX Z</title>
       <style>
-        body {{
-          background: #111;
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          height: 100vh;
-          font-family: Arial, sans-serif;
-        }}
-        .squircle {{
-          background: #222;
-          padding: 40px;
-          border-radius: 30% / 20%;
+        body {
+          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          margin: 0; padding: 0;
+          background: #000;
+          color: #fff;
+          min-height: 100vh;
+          display: flex; justify-content: center; align-items: center;
+        }
+        .container {
           text-align: center;
-          color: white;
-          box-shadow: 0 0 20px rgba(0,255,255,0.5);
-        }}
-        button {{
-          background: cyan;
-          border: none;
-          padding: 10px 20px;
-          border-radius: 10px;
-          font-size: 16px;
-          cursor: pointer;
-        }}
+          background: rgba(20,20,20,0.95);
+          padding: 2rem;
+          border-radius: 12px;
+          box-shadow: 0 8px 25px rgba(0,0,0,0.7);
+        }
+        h1 { color: #ace9ff; margin-bottom: 1rem; }
+        .btn {
+          display: inline-block;
+          padding: 12px 24px;
+          border-radius: 8px;
+          background: linear-gradient(90deg,#00ffc3,#00e0b0);
+          color: #000; font-weight: bold; text-decoration: none;
+          transition: 0.3s;
+        }
+        .btn:hover { transform: translateY(-2px); }
       </style>
     </head>
     <body>
-      <div class="squircle">
-        <h2>Your Key</h2>
-        <p><b>{key}</b></p>
-        <form method="POST" action="/validate/{key}">
-            <button type="submit">Whitelist Me</button>
-        </form>
-        <p>✅ Your key will expire in 35 hours.</p>
+      <div class="container">
+        <h1>VERTEX Z</h1>
+        <p>Click below to get your key</p>
+        <a href="https://lootdest.org/s?zsW5sQch" target="_blank" class="btn">Get Key</a>
       </div>
     </body>
     </html>
     """
-    return html
 
-@app.route("/validate/<key>", methods=["POST"])
-def validate(key):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT username, expiry FROM whitelist WHERE key=?", (key,))
-    row = c.fetchone()
-    conn.close()
+@app.route("/completed")
+def get_key():
+    referer = request.headers.get("Referer", "")
+    if not any(src in (referer or "") for src in ALLOWED_SOURCES):
+        return "<h1 style='color:red;text-align:center'>❌ Access Denied</h1>", 403
 
-    if not row:
-        return "❌ Invalid key!"
-    username, expiry = row
-    if int(time.time()) > expiry:
-        return "⏰ Key expired!"
+    db = load_db()
+    key = generate_key()
+    db[key] = {
+        "created_at": int(time.time()),
+        "expiry": DEFAULT_EXPIRY_HOURS * 3600,
+        "redeemed": False
+    }
+    save_db(db)
 
-    return f"✅ {username} has been whitelisted successfully!"
+    # Your theme template with key injected
+    template = open("theme.html").read()
+    return template.replace("PLACE_HOLDER_KEY", key)
+
+def _corsify(resp, code=200):
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    resp.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
+    return resp, code
+
+@app.route("/validate", methods=["GET", "POST", "OPTIONS"])
+def validate():
+    if request.method == "OPTIONS":
+        return _corsify(jsonify({}), 204)
+
+    key = None
+    if request.is_json:
+        data = request.get_json(silent=True) or {}
+        key = data.get("key")
+    if not key:
+        key = request.args.get("key") or request.form.get("key")
+
+    db = load_db()
+    record = db.get(key)
+    ok = False
+
+    if record:
+        created = record.get("created_at", 0)
+        expiry = record.get("expiry", DEFAULT_EXPIRY_HOURS * 3600)
+        if not record.get("redeemed") and (time.time() - created) < expiry:
+            ok = True
+
+    resp = jsonify({"success": ok, "message": "Key is valid!" if ok else "Invalid or expired key!"})
+    return _corsify(resp, 200 if ok else 400)
+
+@app.route("/redeem", methods=["POST"])
+def redeem():
+    data = request.get_json(silent=True) or {}
+    key = data.get("key")
+
+    db = load_db()
+    record = db.get(key)
+    if record and not record["redeemed"]:
+        record["redeemed"] = True
+        save_db(db)
+        return jsonify({"success": True, "message": "Key redeemed!"})
+    return jsonify({"success": False, "message": "Invalid or already used key!"}), 400
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=20092)
