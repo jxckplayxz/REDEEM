@@ -1,216 +1,180 @@
-# app.py
-from flask import Flask, request, jsonify, g, render_template_string, redirect, url_for, session
-import sqlite3
-import os
-from functools import wraps
-
-# -------------------- CONFIG --------------------
-DATABASE = 'clicks.db'
-# Default admin password set as requested. You can override with environment variable ADMIN_PASS.
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASS", "Admin121")
-# Flask secret for session signing. Override in env for production.
-SECRET_KEY = os.environ.get("FLASK_SECRET", "change_this_secret_key")
-# Optional simple server token to require from clients. If you don't want this, leave empty "".
-SERVER_TOKEN = os.environ.get("SERVER_TOKEN", "")
+from flask import Flask, request, jsonify, render_template_string, redirect, url_for, session
+from flask_cors import CORS
+import os, json
 
 app = Flask(__name__)
-app.secret_key = SECRET_KEY
+CORS(app)
 
-# -------------------- DB HELPERS --------------------
-def get_db():
-    db = getattr(g, '_database', None)
-    if db is None:
-        db = g._database = sqlite3.connect(DATABASE)
-        db.row_factory = sqlite3.Row
-    return db
+app.secret_key = "super_secret_key_123"
+DB_FILE = "clicks.json"
+ADMIN_PASS = "Admin121"
 
-def init_db():
-    db = get_db()
-    db.executescript('''
-    CREATE TABLE IF NOT EXISTS clicks (
-        userId TEXT PRIMARY KEY,
-        username TEXT,
-        scriptId TEXT,
-        clicked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE TABLE IF NOT EXISTS meta (
-        k TEXT PRIMARY KEY,
-        v TEXT
-    );
-    ''')
-    db.commit()
-
-@app.teardown_appcontext
-def close_connection(exception):
-    db = getattr(g, '_database', None)
-    if db is not None:
-        db.close()
-
-# -------------------- AUTH DECORATOR --------------------
-def admin_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not session.get('admin'):
-            return redirect(url_for('admin_login', next=request.path))
-        return f(*args, **kwargs)
-    return decorated
-
-# -------------------- API ENDPOINTS --------------------
-@app.route('/api/status', methods=['GET'])
-def api_status():
-    """
-    Query params:
-      - userId (required)
-    Returns JSON: { clicked: bool, message: "..." }
-    """
-    userId = request.args.get('userId')
-    db = get_db()
-    clicked = False
-    if userId:
-        cur = db.execute('SELECT 1 FROM clicks WHERE userId=?', (userId,))
-        row = cur.fetchone()
-        clicked = bool(row)
-    cur2 = db.execute('SELECT v FROM meta WHERE k="message"')
-    r2 = cur2.fetchone()
-    message = r2['v'] if r2 else ""
-    return jsonify({"clicked": clicked, "message": message})
-
-@app.route('/api/click', methods=['POST'])
-def api_click():
-    """
-    Expects JSON body: { userId: "...", username: "...", scriptId: "..." }
-    Optional: require header 'X-Server-Token' to match SERVER_TOKEN (if set).
-    """
-    # simple token protection (optional)
-    if SERVER_TOKEN:
-        token = request.headers.get('X-Server-Token', '')
-        if token != SERVER_TOKEN:
-            return jsonify({"error":"invalid token"}), 403
-
-    data = request.json or {}
-    userId = str(data.get('userId', 'unknown'))
-    username = str(data.get('username', 'Unknown'))
-    scriptId = str(data.get('scriptId', ''))
-    db = get_db()
-    # Insert or replace so the latest username/scriptId is stored
-    db.execute('INSERT OR REPLACE INTO clicks(userId, username, scriptId) VALUES (?, ?, ?)', (userId, username, scriptId))
-    db.commit()
-    cur2 = db.execute('SELECT v FROM meta WHERE k="message"')
-    r2 = cur2.fetchone()
-    message = r2['v'] if r2 else ""
-    return jsonify({"success": True, "clicked": True, "message": message})
-
-# -------------------- ADMIN PAGES --------------------
-@app.route('/admin/login', methods=['GET','POST'])
-def admin_login():
-    # Simple password-based session login
-    if request.method == 'POST':
-        pw = request.form.get('password','')
-        if pw == ADMIN_PASSWORD:
-            session['admin'] = True
-            return redirect(url_for('admin_dashboard'))
-        else:
-            return render_template_string(LOGIN_HTML, error="Wrong password")
-    return render_template_string(LOGIN_HTML, error=None)
-
-@app.route('/admin/logout')
-def admin_logout():
-    session.pop('admin', None)
-    return redirect(url_for('admin_login'))
-
-@app.route('/admin')
-@admin_required
-def admin_dashboard():
-    db = get_db()
-    cur = db.execute('SELECT userId, username, scriptId, clicked_at FROM clicks ORDER BY clicked_at DESC')
-    rows = cur.fetchall()
-    cur2 = db.execute('SELECT v FROM meta WHERE k="message"')
-    r2 = cur2.fetchone()
-    message = r2['v'] if r2 else ""
-    return render_template_string(ADMIN_HTML, users=rows, message=message)
-
-@app.route('/admin/delete_user/<userId>', methods=['POST'])
-@admin_required
-def admin_delete_user(userId):
-    db = get_db()
-    db.execute('DELETE FROM clicks WHERE userId=?', (userId,))
-    db.commit()
-    return redirect(url_for('admin_dashboard'))
-
-@app.route('/admin/set_message', methods=['POST'])
-@admin_required
-def admin_set_message():
-    msg = request.form.get('message','')
-    db = get_db()
-    db.execute('INSERT OR REPLACE INTO meta(k,v) VALUES ("message", ?)', (msg,))
-    db.commit()
-    return redirect(url_for('admin_dashboard'))
-
-# -------------------- SIMPLE INLINE HTML TEMPLATES --------------------
-LOGIN_HTML = '''
-<!doctype html>
-<html>
-<head><meta charset="utf-8"><title>Admin Login</title></head>
-<body>
-  <h2>Admin login</h2>
-  {% if error %}<p style="color:red">{{error}}</p>{% endif %}
-  <form method="post">
-    <input type="password" name="password" placeholder="password" />
-    <button type="submit">Login</button>
-  </form>
-</body>
-</html>
-'''
-
-ADMIN_HTML = '''
-<!doctype html>
+# Admin panel HTML
+ADMIN_HTML = """
+<!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8">
-  <title>Admin Dashboard</title>
-  <style>
-    body{font-family:Arial,Helvetica,sans-serif;padding:20px}
-    table{border-collapse:collapse;width:100%}
-    th,td{border:1px solid #ddd;padding:8px;text-align:left}
-    th{background:#f2f2f2}
-    textarea{width:100%;box-sizing:border-box}
-    form.inline{display:inline}
-  </style>
+    <title>Admin Panel</title>
+    <style>
+        body {
+            background: #0e0e0e;
+            color: white;
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+        .box {
+            background: #1b1b1b;
+            border-radius: 10px;
+            display: inline-block;
+            padding: 20px;
+            margin-top: 50px;
+            box-shadow: 0 0 10px #0ff;
+        }
+        input, button, textarea {
+            padding: 8px;
+            margin: 5px;
+            border: none;
+            border-radius: 5px;
+        }
+        button {
+            background-color: #0ff;
+            color: black;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #08f;
+            color: white;
+        }
+        textarea {
+            width: 80%;
+            height: 80px;
+        }
+        a {
+            color: #0ff;
+            text-decoration: none;
+        }
+    </style>
 </head>
 <body>
-  <h2>Admin Dashboard</h2>
-  <p><a href="{{ url_for('admin_logout') }}">Logout</a></p>
-
-  <h3>Current announcement message</h3>
-  <form action="{{ url_for('admin_set_message') }}" method="post">
-    <textarea name="message" rows="3" placeholder="Announcement...">{{message}}</textarea><br/>
-    <button type="submit">Set message</button>
-  </form>
-
-  <h3>Clicked users</h3>
-  <table>
-    <tr><th>UserId</th><th>Username</th><th>ScriptId</th><th>When</th><th>Action</th></tr>
-    {% for u in users %}
-    <tr>
-      <td>{{u['userId']}}</td>
-      <td>{{u['username']}}</td>
-      <td>{{u['scriptId']}}</td>
-      <td>{{u['clicked_at']}}</td>
-      <td>
-        <form class="inline" action="{{ url_for('admin_delete_user', userId=u['userId']) }}" method="post" onsubmit="return confirm('Delete {{u['userId']}}?')">
-          <button type="submit">Delete</button>
-        </form>
-      </td>
-    </tr>
-    {% endfor %}
-  </table>
+    {% if not session.get('logged_in') %}
+        <div class="box">
+            <h2>Admin Login</h2>
+            <form method="POST" action="/login">
+                <input type="password" name="password" placeholder="Enter Admin Password" required><br>
+                <button type="submit">Login</button>
+            </form>
+        </div>
+    {% else %}
+        <div class="box">
+            <h2>Users Who Clicked</h2>
+            <ul>
+                {% for user in users %}
+                    <li>{{ user }} <a href="/delete/{{ user }}">[Delete]</a></li>
+                {% endfor %}
+            </ul>
+            <form action="/delete_all" method="POST">
+                <button type="submit" style="background:red;color:white;">Delete All Users</button>
+            </form>
+            <h2>Set Announcement</h2>
+            <form method="POST" action="/set_message">
+                <textarea name="message" placeholder="Enter your message here...">{{ message }}</textarea><br>
+                <button type="submit">Update Message</button>
+            </form>
+            <br>
+            <a href="/logout"><button>Logout</button></a>
+        </div>
+    {% endif %}
 </body>
 </html>
-'''
+"""
 
-# -------------------- STARTUP --------------------
-if __name__ == '__main__':
-    with app.app_context():
-        init_db()
-    # For local testing use debug=True. For production use gunicorn/uWSGI + nginx and set debug=False.
-    app.run(host='0.0.0.0', port=5000, debug=True)
+# Utility functions
+def load_db():
+    if not os.path.exists(DB_FILE):
+        with open(DB_FILE, "w") as f:
+            json.dump({"users": [], "message": ""}, f)
+    with open(DB_FILE, "r") as f:
+        return json.load(f)
+
+def save_db(data):
+    with open(DB_FILE, "w") as f:
+        json.dump(data, f, indent=4)
+
+@app.after_request
+def add_headers(response):
+    response.headers["Content-Type"] = "application/json"
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    return response
+
+# Routes
+@app.route('/')
+def index():
+    return jsonify({"status": "running"})
+
+@app.route('/click', methods=['POST'])
+def click():
+    data = request.get_json()
+    username = data.get("username")
+    db = load_db()
+    if username and username not in db["users"]:
+        db["users"].append(username)
+        save_db(db)
+    return jsonify({"success": True})
+
+@app.route('/check')
+def check():
+    username = request.args.get("username")
+    db = load_db()
+    clicked = username in db["users"]
+    return jsonify({"clicked": clicked, "message": db.get("message", "")})
+
+@app.route('/admin')
+def admin():
+    db = load_db()
+    return render_template_string(ADMIN_HTML, users=db["users"], message=db["message"])
+
+@app.route('/login', methods=['POST'])
+def login():
+    if request.form.get("password") == ADMIN_PASS:
+        session["logged_in"] = True
+        return redirect(url_for("admin"))
+    return "Wrong password."
+
+@app.route('/logout')
+def logout():
+    session.pop("logged_in", None)
+    return redirect(url_for("admin"))
+
+@app.route('/delete/<username>')
+def delete_user(username):
+    if not session.get("logged_in"):
+        return redirect(url_for("admin"))
+    db = load_db()
+    if username in db["users"]:
+        db["users"].remove(username)
+        save_db(db)
+    return redirect(url_for("admin"))
+
+@app.route('/delete_all', methods=['POST'])
+def delete_all():
+    if not session.get("logged_in"):
+        return redirect(url_for("admin"))
+    db = load_db()
+    db["users"] = []
+    save_db(db)
+    return redirect(url_for("admin"))
+
+@app.route('/set_message', methods=['POST'])
+def set_message():
+    if not session.get("logged_in"):
+        return redirect(url_for("admin"))
+    msg = request.form.get("message", "")
+    db = load_db()
+    db["message"] = msg
+    save_db(db)
+    return redirect(url_for("admin"))
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
