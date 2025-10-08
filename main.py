@@ -1,137 +1,216 @@
-from flask import Flask, request, render_template_string, jsonify
-import os, json, random, time
+# app.py
+from flask import Flask, request, jsonify, g, render_template_string, redirect, url_for, session
+import sqlite3
+import os
+from functools import wraps
+
+# -------------------- CONFIG --------------------
+DATABASE = 'clicks.db'
+# Default admin password set as requested. You can override with environment variable ADMIN_PASS.
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASS", "Admin121")
+# Flask secret for session signing. Override in env for production.
+SECRET_KEY = os.environ.get("FLASK_SECRET", "change_this_secret_key")
+# Optional simple server token to require from clients. If you don't want this, leave empty "".
+SERVER_TOKEN = os.environ.get("SERVER_TOKEN", "")
 
 app = Flask(__name__)
+app.secret_key = SECRET_KEY
 
-DB_FILE = "keys.json"
-ALLOWED_SOURCES = ["lootdest.org", "loot-link.com", "lootlabs.net"]
-DEFAULT_EXPIRY_HOURS = 35
+# -------------------- DB HELPERS --------------------
+def get_db():
+    db = getattr(g, '_database', None)
+    if db is None:
+        db = g._database = sqlite3.connect(DATABASE)
+        db.row_factory = sqlite3.Row
+    return db
 
-def load_db():
-    if os.path.exists(DB_FILE):
-        try:
-            with open(DB_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
+def init_db():
+    db = get_db()
+    db.executescript('''
+    CREATE TABLE IF NOT EXISTS clicks (
+        userId TEXT PRIMARY KEY,
+        username TEXT,
+        scriptId TEXT,
+        clicked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS meta (
+        k TEXT PRIMARY KEY,
+        v TEXT
+    );
+    ''')
+    db.commit()
 
-def save_db(db):
-    with open(DB_FILE, "w") as f:
-        json.dump(db, f)
+@app.teardown_appcontext
+def close_connection(exception):
+    db = getattr(g, '_database', None)
+    if db is not None:
+        db.close()
 
-def generate_key(n=12):
-    return ''.join(random.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") for _ in range(n))
+# -------------------- AUTH DECORATOR --------------------
+def admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get('admin'):
+            return redirect(url_for('admin_login', next=request.path))
+        return f(*args, **kwargs)
+    return decorated
 
-@app.route("/")
-def home():
-    return """
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>VERTEX Z</title>
-      <style>
-        body {
-          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-          margin: 0; padding: 0;
-          background: #000;
-          color: #fff;
-          min-height: 100vh;
-          display: flex; justify-content: center; align-items: center;
-        }
-        .container {
-          text-align: center;
-          background: rgba(20,20,20,0.95);
-          padding: 2rem;
-          border-radius: 12px;
-          box-shadow: 0 8px 25px rgba(0,0,0,0.7);
-        }
-        h1 { color: #ace9ff; margin-bottom: 1rem; }
-        .btn {
-          display: inline-block;
-          padding: 12px 24px;
-          border-radius: 8px;
-          background: linear-gradient(90deg,#00ffc3,#00e0b0);
-          color: #000; font-weight: bold; text-decoration: none;
-          transition: 0.3s;
-        }
-        .btn:hover { transform: translateY(-2px); }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <h1>VERTEX Z</h1>
-        <p>Click below to get your key</p>
-        <a href="https://lootdest.org/s?yDSjABS3" target="_blank" class="btn">Get Key</a>
-      </div>
-    </body>
-    </html>
+# -------------------- API ENDPOINTS --------------------
+@app.route('/api/status', methods=['GET'])
+def api_status():
     """
+    Query params:
+      - userId (required)
+    Returns JSON: { clicked: bool, message: "..." }
+    """
+    userId = request.args.get('userId')
+    db = get_db()
+    clicked = False
+    if userId:
+        cur = db.execute('SELECT 1 FROM clicks WHERE userId=?', (userId,))
+        row = cur.fetchone()
+        clicked = bool(row)
+    cur2 = db.execute('SELECT v FROM meta WHERE k="message"')
+    r2 = cur2.fetchone()
+    message = r2['v'] if r2 else ""
+    return jsonify({"clicked": clicked, "message": message})
 
-@app.route("/completed")
-def get_key():
-    referer = request.headers.get("Referer", "")
-    if not any(src in (referer or "") for src in ALLOWED_SOURCES):
-        return "<h1 style='color:red;text-align:center'>❌ Access Denied</h1>", 403
+@app.route('/api/click', methods=['POST'])
+def api_click():
+    """
+    Expects JSON body: { userId: "...", username: "...", scriptId: "..." }
+    Optional: require header 'X-Server-Token' to match SERVER_TOKEN (if set).
+    """
+    # simple token protection (optional)
+    if SERVER_TOKEN:
+        token = request.headers.get('X-Server-Token', '')
+        if token != SERVER_TOKEN:
+            return jsonify({"error":"invalid token"}), 403
 
-    db = load_db()
-    key = generate_key()
-    db[key] = {
-        "created_at": int(time.time()),
-        "expiry": DEFAULT_EXPIRY_HOURS * 3600,
-        "redeemed": False
-    }
-    save_db(db)
+    data = request.json or {}
+    userId = str(data.get('userId', 'unknown'))
+    username = str(data.get('username', 'Unknown'))
+    scriptId = str(data.get('scriptId', ''))
+    db = get_db()
+    # Insert or replace so the latest username/scriptId is stored
+    db.execute('INSERT OR REPLACE INTO clicks(userId, username, scriptId) VALUES (?, ?, ?)', (userId, username, scriptId))
+    db.commit()
+    cur2 = db.execute('SELECT v FROM meta WHERE k="message"')
+    r2 = cur2.fetchone()
+    message = r2['v'] if r2 else ""
+    return jsonify({"success": True, "clicked": True, "message": message})
 
-    # Your theme template with key injected
-    template = open("theme.html").read()
-    return template.replace("PLACE_HOLDER_KEY", key)
+# -------------------- ADMIN PAGES --------------------
+@app.route('/admin/login', methods=['GET','POST'])
+def admin_login():
+    # Simple password-based session login
+    if request.method == 'POST':
+        pw = request.form.get('password','')
+        if pw == ADMIN_PASSWORD:
+            session['admin'] = True
+            return redirect(url_for('admin_dashboard'))
+        else:
+            return render_template_string(LOGIN_HTML, error="Wrong password")
+    return render_template_string(LOGIN_HTML, error=None)
 
-def _corsify(resp, code=200):
-    resp.headers["Access-Control-Allow-Origin"] = "*"
-    resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
-    resp.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
-    return resp, code
+@app.route('/admin/logout')
+def admin_logout():
+    session.pop('admin', None)
+    return redirect(url_for('admin_login'))
 
-@app.route("/validate", methods=["GET", "POST", "OPTIONS"])
-def validate():
-    if request.method == "OPTIONS":
-        return _corsify(jsonify({}), 204)
+@app.route('/admin')
+@admin_required
+def admin_dashboard():
+    db = get_db()
+    cur = db.execute('SELECT userId, username, scriptId, clicked_at FROM clicks ORDER BY clicked_at DESC')
+    rows = cur.fetchall()
+    cur2 = db.execute('SELECT v FROM meta WHERE k="message"')
+    r2 = cur2.fetchone()
+    message = r2['v'] if r2 else ""
+    return render_template_string(ADMIN_HTML, users=rows, message=message)
 
-    key = None
-    if request.is_json:
-        data = request.get_json(silent=True) or {}
-        key = data.get("key")
-    if not key:
-        key = request.args.get("key") or request.form.get("key")
+@app.route('/admin/delete_user/<userId>', methods=['POST'])
+@admin_required
+def admin_delete_user(userId):
+    db = get_db()
+    db.execute('DELETE FROM clicks WHERE userId=?', (userId,))
+    db.commit()
+    return redirect(url_for('admin_dashboard'))
 
-    db = load_db()
-    record = db.get(key)
-    ok = False
+@app.route('/admin/set_message', methods=['POST'])
+@admin_required
+def admin_set_message():
+    msg = request.form.get('message','')
+    db = get_db()
+    db.execute('INSERT OR REPLACE INTO meta(k,v) VALUES ("message", ?)', (msg,))
+    db.commit()
+    return redirect(url_for('admin_dashboard'))
 
-    if record:
-        created = record.get("created_at", 0)
-        expiry = record.get("expiry", DEFAULT_EXPIRY_HOURS * 3600)
-        if not record.get("redeemed") and (time.time() - created) < expiry:
-            ok = True
+# -------------------- SIMPLE INLINE HTML TEMPLATES --------------------
+LOGIN_HTML = '''
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Admin Login</title></head>
+<body>
+  <h2>Admin login</h2>
+  {% if error %}<p style="color:red">{{error}}</p>{% endif %}
+  <form method="post">
+    <input type="password" name="password" placeholder="password" />
+    <button type="submit">Login</button>
+  </form>
+</body>
+</html>
+'''
 
-    resp = jsonify({"success": ok, "message": "Key is valid!" if ok else "Invalid or expired key!"})
-    return _corsify(resp, 200 if ok else 400)
+ADMIN_HTML = '''
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Admin Dashboard</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;padding:20px}
+    table{border-collapse:collapse;width:100%}
+    th,td{border:1px solid #ddd;padding:8px;text-align:left}
+    th{background:#f2f2f2}
+    textarea{width:100%;box-sizing:border-box}
+    form.inline{display:inline}
+  </style>
+</head>
+<body>
+  <h2>Admin Dashboard</h2>
+  <p><a href="{{ url_for('admin_logout') }}">Logout</a></p>
 
-@app.route("/redeem", methods=["POST"])
-def redeem():
-    data = request.get_json(silent=True) or {}
-    key = data.get("key")
+  <h3>Current announcement message</h3>
+  <form action="{{ url_for('admin_set_message') }}" method="post">
+    <textarea name="message" rows="3" placeholder="Announcement...">{{message}}</textarea><br/>
+    <button type="submit">Set message</button>
+  </form>
 
-    db = load_db()
-    record = db.get(key)
-    if record and not record["redeemed"]:
-        record["redeemed"] = True
-        save_db(db)
-        return jsonify({"success": True, "message": "Key redeemed!"})
-    return jsonify({"success": False, "message": "Invalid or already used key!"}), 400
+  <h3>Clicked users</h3>
+  <table>
+    <tr><th>UserId</th><th>Username</th><th>ScriptId</th><th>When</th><th>Action</th></tr>
+    {% for u in users %}
+    <tr>
+      <td>{{u['userId']}}</td>
+      <td>{{u['username']}}</td>
+      <td>{{u['scriptId']}}</td>
+      <td>{{u['clicked_at']}}</td>
+      <td>
+        <form class="inline" action="{{ url_for('admin_delete_user', userId=u['userId']) }}" method="post" onsubmit="return confirm('Delete {{u['userId']}}?')">
+          <button type="submit">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</body>
+</html>
+'''
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=20092)
+# -------------------- STARTUP --------------------
+if __name__ == '__main__':
+    with app.app_context():
+        init_db()
+    # For local testing use debug=True. For production use gunicorn/uWSGI + nginx and set debug=False.
+    app.run(host='0.0.0.0', port=5000, debug=True)
