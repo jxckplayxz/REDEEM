@@ -1,5 +1,11 @@
-Flask==2.3.3
-bs4
-requests
-Flask_cors
-gunicorn==21.2.0
+# Core dependencies
+Flask==3.0.3
+Werkzeug==3.0.3
+
+# Security (password hashing)
+bcrypt==4.2.0   # optional – Flask uses passlib internally, but bcrypt is faster
+
+# Optional – nicer terminal output when you run pip install
+colorama==0.4.6
+
+# (No need for cloudflared – it is a separate binary, not a Python package)
