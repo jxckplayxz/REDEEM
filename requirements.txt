@@ -1,11 +1,6 @@
-# Core dependencies
-Flask==3.0.3
-Werkzeug==3.0.3
-
-# Security (password hashing)
-bcrypt==4.2.0   # optional – Flask uses passlib internally, but bcrypt is faster
-
-# Optional – nicer terminal output when you run pip install
-colorama==0.4.6
-
-# (No need for cloudflared – it is a separate binary, not a Python package)
+flask==3.0.0
+werkzeug==3.0.1
+jinja2==3.1.2
+psutil==5.9.6
+pathlib==1.0.1
+gunicorn==21.2.0
