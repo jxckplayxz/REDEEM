@@ -1095,13 +1095,26 @@ def start_server(sid):
     # Start the process non-blocking, capturing stdout/stderr
     proc = subprocess.Popen(cmd, cwd=str(spath), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, text=True, bufsize=1, errors="ignore")
     s["process"] = proc
+    
+    # Start the log streaming thread IMMEDIATELY to capture potential crash output
+    threading.Thread(target=_stream_logs, args=(sid, proc, logf), daemon=True).start()
+    
+    # Give the process half a second to crash/exit if there's a startup error
+    time.sleep(0.5) 
+    
+    # CRITICAL FIX: Check if the process died immediately before setting status to running
+    if proc.poll() is not None:
+        s["process"] = None
+        s["psutil_proc"] = None
+        s["status"] = "stopped"
+        with logf.open("a") as f: f.write(f"\n<span class='log-error'>--- Process crashed immediately on startup (Exit code: {proc.poll()}) ---</span>\n")
+        return False, "process crashed immediately"
+        
+    # If successful, finalize state
     try: s["psutil_proc"] = psutil.Process(proc.pid)
     except psutil.NoSuchProcess: pass
     s["status"] = "running"
-    
-    # Start the log streaming thread
-    threading.Thread(target=_stream_logs, args=(sid, proc, logf), daemon=True).start()
-    
+
     if "flask" in s["type"] or "express" in s["type"]:
         threading.Thread(target=_start_tunnel, args=(sid, port), daemon=True).start()
     
