@@ -1062,17 +1062,60 @@ def _stream_logs(sid, proc, log_file):
             # Process still exists but stream ended, mark it for review/stop
             with log_file.open("a") as f: f.write(f"\n<span class='log-error'>--- WARNING: Log pipe closed unexpectedly ({time.ctime()}). Server might be unstable. ---</span>\n")
             
+import os, subprocess, threading, time, json, psutil
+from pathlib import Path
+
+runtime = {"servers": {}}  # Example server storage
+
+# --- Utilities ---
+def logs_path(owner, name):
+    return Path(f"./logs/{owner}_{name}.log")
+
+def env_file_path(owner, name):
+    return Path(f"./envs/{owner}_{name}.json")
+
+def get_free_port():
+    import socket
+    s = socket.socket()
+    s.bind(('', 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+def find_entry_file(spath, stype):
+    # Simple example: look for index.js or app.py
+    if stype.startswith("nodejs"):
+        candidate = spath / "index.js"
+    else:
+        candidate = spath / "app.py"
+    return candidate if candidate.exists() else None
+
+def _run_command_and_log(cmd, cwd, logf):
+    with logf.open("a", encoding="utf-8", errors="ignore") as f:
+        proc = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        for line in proc.stdout:
+            f.write(line)
+        proc.wait()
+
+def _stream_logs(sid, proc, logf):
+    with logf.open("a", encoding="utf-8", errors="ignore") as f:
+        for line in proc.stdout:
+            f.write(line)
+
+# --- Start server ---
 def start_server(sid):
     s = runtime["servers"].get(sid)
-    if not s or s.get("process"): return False, "already running"
-    spath, logf = logs_path(s["owner"], s["name"]).parent, logs_path(s["owner"], s["name"])
-    logf.parent.mkdir(parents=True, exist_ok=True)
-    
-    with logf.open("a", encoding="utf-8", errors="ignore") as f: 
-        f.write(f"\n<span class='log-start'>--- Starting server at {time.ctime()} ---</span>\n")
+    if not s or s.get("process"): 
+        return False, "already running"
 
-    # Install dependencies (blocking commands, log output immediately)
+    spath, logf = Path(s["path"]), logs_path(s["owner"], s["name"])
+    logf.parent.mkdir(parents=True, exist_ok=True)
+    with logf.open("a", encoding="utf-8", errors="ignore") as f: 
+        f.write(f"\n--- Starting server at {time.ctime()} ---\n")
+
     is_node = s["type"].startswith('nodejs')
+
+    # Install dependencies
     if is_node and (spath / "package.json").exists():
         _run_command_and_log(["npm", "install"], spath, logf)
     elif not is_node and (spath / "requirements.txt").exists():
@@ -1080,45 +1123,40 @@ def start_server(sid):
 
     entry = find_entry_file(spath, s["type"])
     if not entry:
-        with logf.open("a") as f: f.write("<span class='log-error'>No entry file found (e.g., app.py, index.js)</span>\n")
+        with logf.open("a") as f: f.write("No entry file found\n")
         return False, "no entry file"
-    
-    port = get_free_port(); s["port"] = port
-    env = os.environ.copy(); env["PORT"] = str(port)
+
+    port = get_free_port()
+    s["port"] = port
+    env = os.environ.copy()
+    env["PORT"] = str(port)
+
     env_path = env_file_path(s['owner'], s['name'])
     if env_path.exists():
         with env_path.open('r') as f: user_env = json.load(f)
         for k, v in user_env.items(): env[k] = str(v)
 
-    cmd = ["node", str(entry)] if is_node else ["python3", "-u", str(entry)]
+    if is_node:
+        return False, "Node.js servers must be run via Node.js service"
     
-    # Start the process non-blocking, capturing stdout/stderr
+    # Python server command
+    cmd = ["python3", "-u", str(entry)]
     proc = subprocess.Popen(cmd, cwd=str(spath), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, text=True, bufsize=1, errors="ignore")
     s["process"] = proc
-    
-    # Start the log streaming thread IMMEDIATELY to capture potential crash output
+
     threading.Thread(target=_stream_logs, args=(sid, proc, logf), daemon=True).start()
-    
-    # Give the process half a second to crash/exit if there's a startup error
-    time.sleep(0.5) 
-    
-    # CRITICAL FIX: Check if the process died immediately before setting status to running
+    time.sleep(0.5)
+
     if proc.poll() is not None:
         s["process"] = None
-        s["psutil_proc"] = None
         s["status"] = "stopped"
-        with logf.open("a") as f: f.write(f"\n<span class='log-error'>--- Process crashed immediately on startup (Exit code: {proc.poll()}) ---</span>\n")
+        with logf.open("a") as f: f.write(f"Process crashed immediately (Exit code: {proc.poll()})\n")
         return False, "process crashed immediately"
-        
-    # If successful, finalize state
+
     try: s["psutil_proc"] = psutil.Process(proc.pid)
     except psutil.NoSuchProcess: pass
     s["status"] = "running"
-
-    if "flask" in s["type"] or "express" in s["type"]:
-        threading.Thread(target=_start_tunnel, args=(sid, port), daemon=True).start()
-    
-    return True, "started"
+    return True, "Python server started"
 
 def stop_server(sid):
     s = runtime["servers"].get(sid)
@@ -1335,49 +1373,108 @@ def server_banner(sid):
     return "", 404
 
 
-@app.route("/server/<sid>/start", methods=["POST"])
-def start_server_action(sid):
-    s = runtime["servers"].get(sid)
-    if s and s["owner"] == current_user(): 
-        success, msg = start_server(sid)
-        if success: flash(f"Server starting...", "info")
-        else: flash(f"Failed to start server: {msg}", "danger")
-    return redirect(request.referrer or url_for('dashboard'))
+from flask import Flask, flash, redirect, request, url_for
+import requests, time
 
-@app.route("/server/<sid>/stop", methods=["POST"])
-def stop_server_action(sid):
-    s = runtime["servers"].get(sid)
-    if s and s["owner"] == current_user(): 
-        stop_server(sid)
-        flash("Server stopped.", "warning")
-    return redirect(request.referrer or url_for('dashboard'))
+app = Flask(__name__)
+app.secret_key = "your_secret_key"
 
-@app.route("/server/<sid>/restart", methods=["POST"])
-def restart_server_action(sid):
-    s = runtime["servers"].get(sid)
-    if s and s["owner"] == current_user():
-        was_running = s['status'] == 'running'
-        if was_running: stop_server(sid); time.sleep(1)
-        start_server(sid)
-        flash("Server restarted." if was_running else "Server started.", "success")
-    return redirect(request.referrer or url_for('dashboard'))
+runtime = {"servers": {}}  # Example server storage
 
-@app.route("/server/<sid>/delete", methods=["POST"])
-def delete_server_action(sid):
-    s = runtime["servers"].get(sid)
-    if s and s["owner"] == current_user():
-        delete_server(sid)
-        flash("Server deleted successfully.", "success")
-    return redirect(url_for('dashboard'))
+# Assume start_server(sid) and stop_python_server(sid) exist from previous code
 
-@app.route("/logs/<sid>")
-def logs_view(sid):
+# --- Start Server ---
+runtime = {"servers": {}}
+NODE_API = "https://nokde-js.onrender.com/"
+
+# --- Start Server ---
+@app.route("/api/server/<sid>/start", methods=["POST"])
+def api_start_server(sid):
     s = runtime["servers"].get(sid)
-    if not s or s["owner"] != current_user(): return "Not Found", 404
-    log_file = logs_path(s["owner"], s["name"])
+    if not s or s["owner"] != current_user():
+        return jsonify({"error": "Unauthorized or server not found"}), 403
+
+    if s["type"].startswith("nodejs"):
+        try:
+            res = requests.post(f"{NODE_API}/server/{sid}/start")
+            return jsonify(res.json()), res.status_code
+        except Exception as e:
+            return jsonify({"error": f"Node API error: {e}"}), 500
     
-    # Read logs, ensuring it is HTML safe, and apply color markup
-    logs = log_file.read_text(encoding="utf-8", errors="ignore") if log_file.exists() else "No logs yet."
+    success, msg = start_server(sid)
+    return jsonify({"success": success, "message": msg}), (200 if success else 500)
+
+
+# --- Stop Server ---
+@app.route("/api/server/<sid>/stop", methods=["POST"])
+def api_stop_server(sid):
+    s = runtime["servers"].get(sid)
+    if not s or s["owner"] != current_user():
+        return jsonify({"error": "Unauthorized or server not found"}), 403
+
+    if s["type"].startswith("nodejs"):
+        try:
+            res = requests.post(f"{NODE_API}/server/{sid}/stop")
+            return jsonify(res.json()), res.status_code
+        except Exception as e:
+            return jsonify({"error": f"Node API error: {e}"}), 500
+
+    success, msg = stop_python_server(sid)
+    return jsonify({"success": success, "message": msg}), (200 if success else 500)
+
+
+# --- Restart Server ---
+@app.route("/api/server/<sid>/restart", methods=["POST"])
+def api_restart_server(sid):
+    s = runtime["servers"].get(sid)
+    if not s or s["owner"] != current_user():
+        return jsonify({"error": "Unauthorized or server not found"}), 403
+
+    was_running = s.get("status") == "running"
+
+    # Stop
+    if was_running:
+        if s["type"].startswith("nodejs"):
+            try: requests.post(f"{NODE_API}/server/{sid}/stop")
+            except: pass
+        else:
+            stop_python_server(sid)
+        time.sleep(0.5)
+
+    # Start
+    if s["type"].startswith("nodejs"):
+        try:
+            res = requests.post(f"{NODE_API}/server/{sid}/start")
+            return jsonify(res.json()), res.status_code
+        except Exception as e:
+            return jsonify({"error": f"Node API error: {e}"}), 500
+    
+    success, msg = start_server(sid)
+    return jsonify({"success": success, "message": msg}), (200 if success else 500)
+
+
+# --- Delete Server ---
+@app.route("/api/server/<sid>/delete", methods=["POST"])
+def api_delete_server(sid):
+    s = runtime["servers"].get(sid)
+    if not s or s["owner"] != current_user():
+        return jsonify({"error": "Unauthorized or server not found"}), 403
+    
+    delete_server(sid)
+    return jsonify({"success": True, "message": "Server deleted"})
+
+
+# --- Get Logs ---
+@app.route("/api/server/<sid>/logs", methods=["GET"])
+def api_logs(sid):
+    s = runtime["servers"].get(sid)
+    if not s or s["owner"] != current_user():
+        return jsonify({"error": "Unauthorized"}), 403
+
+    log_file = logs_path(s["owner"], s["name"])
+    logs = log_file.read_text(encoding="utf-8", errors="ignore") if log_file.exists() else ""
+    
+    return jsonify({"logs": logs})
     
     # Basic log highlighting using HTML spans defined in LOGS_TEMPLATE style block
     logs = logs.replace("--- Starting server", "<span class='log-start'>--- Starting server")
