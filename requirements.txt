@@ -4,5 +4,4 @@ jinja2==3.1.2
 psutil==5.9.6
 pathlib==1.0.1
 request
-time
 gunicorn==21.2.0
