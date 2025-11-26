@@ -1,26 +1,21 @@
-# main.py — VIXN — FINAL 100% CLEAN & WORKING (NO PRICE BUGS!)
+# main.py — VIXN — FINAL (Exact price you type — no forced .00)
 from flask import Flask, jsonify, request, send_from_directory, render_template_string, redirect, session, url_for
 import json, os
 from werkzeug.utils import secure_filename
 from datetime import datetime
 
 app = Flask(__name__)
-app.secret_key = "vixn_final_2025"
+app.secret_key = "vixn_exact_price_2025"
 
-# YOUR PAYPAL
 PAYPAL_USERNAME = "ContentDeleted939"
-
-# ADMIN
 ADMIN_USER = "Admin"
 ADMIN_PASS = "admin12"
 
-# FILES
 PRODUCTS_FILE = 'products.json'
 PURCHASES_FILE = 'purchases.json'
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# Init files
 for f in [PRODUCTS_FILE, PURCHASES_FILE]:
     if not os.path.exists(f):
         with open(f, 'w', encoding='utf-8') as fp:
@@ -101,16 +96,17 @@ def add_product():
             image = url_for("uploaded_file", filename=fn)
 
         name = data.get("name", "").strip()
-        price = float(data.get("price", 0))
+        price = data.get("price", "").strip()  # Keep as string!
         desc = data.get("description", "")
 
-        if not name or price <= 0:
-            return jsonify({"ok": False, "error": "Invalid"}), 400
+        if not name or not price:
+            return jsonify({"ok": False, "error": "Name and price required"}), 400
 
+        # Store price exactly as typed (string)
         new_prod = {
             "id": next_id(),
             "name": name,
-            "price": round(price, 2),
+            "price": price,  # No rounding!
             "image": image or "https://via.placeholder.com/320x180?text=No+Image",
             "description": desc
         }
@@ -142,19 +138,19 @@ def checkout():
     if not email or not cart:
         return jsonify({"ok": False, "error": "Email & cart required"}), 400
 
-    total = sum(i["price"] * i["qty"] for i in cart)
+    total = sum(float(i["price"]) * i["qty"] for i in cart)
     purchases = read_purchases()
-    purchases.append({"timestamp": datetime.now().isoformat(), "email": email, "total": round(total, 2), "items": cart})
+    purchases.append({"timestamp": datetime.now().isoformat(), "email": email, "total": total, "items": cart})
     write_purchases(purchases)
 
-    url = f"https://www.paypal.me/{PAYPAL_USERNAME}/{total:.2f}"
+    url = f"https://www.paypal.me/{PAYPAL_USERNAME}/{total}"
     return jsonify({"ok": True, "paypal_url": url})
 
 @app.route("/uploads/<path:filename>")
 def uploaded_file(filename):
     return send_from_directory(UPLOAD_FOLDER, filename)
 
-# FINAL CLEAN TEMPLATES — NO MORE PRICE BUGS
+# CLEAN TEMPLATES — PRICE SHOWS EXACTLY AS YOU TYPE
 HOME_HTML = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>VIXN</title>
@@ -210,13 +206,12 @@ fetch("/api/products")
             <div class="card-body">
                 <h3>${esc(p.name)}</h3>
                 <p>${esc(p.description || "")}</p>
-                <div class="price">\[ {p.price.toFixed(2)}</div>
+                <div class="price">\[ {esc(p.price)}</div>
                 <button class="btn" onclick='addToCart(${JSON.stringify(p)})'>Add to Cart</button>
             </div>`;
         list.appendChild(card);
     });
-})
-.catch(err => console.error("Load error:", err));
+});
 saveCart(getCart());
 </script>
 </body></html>"""
@@ -247,7 +242,7 @@ header{display:flex;justify-content:space-between;align-items:center;margin-bott
 <a href="/" class="back">Back</a>
 </header>
 <div id="items"></div>
-<div class="total">Total: <span id="total">$0.00</span></div>
+<div class="total">Total: <span id="total">$0</span></div>
 <button id="checkout" class="btn">Pay with PayPal</button>
 <button onclick="if(confirm('Clear cart?')){localStorage.removeItem('cart');location.reload()}" class="btn clear">Clear Cart</button>
 </div>
@@ -260,8 +255,8 @@ function update(){
     items.innerHTML = c.length ? "" : "<p style='text-align:center;color:var(--muted);font-size:16px'>Cart is empty</p>";
     let total = 0;
     c.forEach(item => {
-        total += item.price * item.qty;
-        items.innerHTML += `<div class="item"><img src="\( {esc(item.image)}"><div style="flex:1"><h3 style="margin:0;font-size:16px"> \){esc(item.name)}</h3><p style="margin:4px 0 0;font-size:14px;color:var(--muted)"> \]{item.price.toFixed(2)} × ${item.qty}</p></div></div>`;
+        total += parseFloat(item.price) * item.qty;
+        items.innerHTML += `<div class="item"><img src="\( {esc(item.image)}"><div style="flex:1"><h3 style="margin:0;font-size:16px"> \){esc(item.name)}</h3><p style="margin:4px 0 0;font-size:14px;color:var(--muted)"> \]{esc(item.price)} × ${item.qty}</p></div></div>`;
     });
     document.getElementById("total").textContent = "$" + total.toFixed(2);
 }
@@ -269,7 +264,7 @@ update();
 document.getElementById("checkout").onclick = () => {
     const cart = getCart();
     if (!cart.length) return alert("Cart empty!");
-    const total = cart.reduce((s,i) => s + i.price * i.qty, 0).toFixed(2);
+    const total = cart.reduce((s,i) => s + parseFloat(i.price) * i.qty, 0).toFixed(2);
     const email = prompt("Total: $" + total + "\\nEnter your email:", "");
     if (!email || !email.includes("@")) return alert("Valid email required");
     fetch("/api/checkout", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({email,cart})})
@@ -288,7 +283,7 @@ document.getElementById("checkout").onclick = () => {
 
 LOGIN_HTML = """<!doctype html><html><head><title>VIXN • Admin</title><style>body{background:#09090b;color:#e6eef8;display:grid;place-items:center;height:100vh;margin:0;font-family:system-ui}.box{background:#0f172a;padding:40px;border-radius:16px;width:360px}input,button{padding:12px;margin:8px 0;width:100%;border-radius:8px;border:none;background:#1e293b;color:white}button{background:#3b82f6;cursor:pointer;font-weight:600}</style></head><body><div class="box"><h2>VIXN Admin</h2><form method=post><input name=username placeholder=Username required><input type=password name=password placeholder=Password required><button>Login</button>{% if error %}<p style="color:#f87171;text-align:center">{{error}}</p>{% endif %}</form></div></body></html>"""
 
-ADMIN_HTML = """<!doctype html><html><head><title>VIXN • Admin</title><style>body{background:#09090b;color:#e6eef8;font-family:system-ui;padding:20px}.c{max-width:1100px;margin:auto}.p{background:#0f172a;padding:20px;border-radius:12px;margin:20px 0}input,textarea,button{padding:10px;margin:5px 0;border-radius:8px;width:100%;background:#1e293b;color:white;border:none}button{background:#3b82f6;cursor:pointer}.del{background:#ef4444;padding:8px 16px;width:auto}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{padding:10px;border-bottom:1px solid #334155;text-align:left}img{max-height:60px;border-radius:8px}</style></head><body><div class="c"><h1>VIXN • Admin Panel</h1><a href="/admin/logout"><button style="background:#ef4444">Logout</button></a><a href="/"><button style="float:right">View Shop</button></a><div class="p"><h2>Add Product</h2><form id="f" enctype="multipart/form-data"><input name=name placeholder="Name" required><input name=price type=number step=0.01 placeholder="Price" required><input name=image placeholder="Image URL"><input type=file name=image_file><textarea name=description placeholder="Description"></textarea><button type=submit>Add</button></form></div><div class="p"><h2>Products ({{products|length}})</h2><table><tr><th>Img</th><th>Name</th><th>Price</th><th>Action</th></tr>{% for p in products %}<tr><td><img src="{{p.image}}"></td><td><strong>{{p.name}}</strong><br><small style="color:#9aa3b2">{{p.description}}</small></td><td>\( {{p.price}}</td><td><button class="del" onclick="if(confirm('Delete?'))fetch('/api/delete_product',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:{{p.id}}})}).then(()=>location.reload())">Delete</button></td></tr>{% endfor %}</table></div><div class="p"><h2>Purchases ({{purchases|length}})</h2><table><tr><th>Time</th><th>Email</th><th>Total</th></tr>{% for p in purchases|reverse %}<tr><td>{{p.timestamp[:19].replace("T"," ")}}</td><td>{{p.email}}</td><td> \){{p.total}}</td></tr>{% endfor %}</table></div><script>document.getElementById("f").onsubmit=e=>{e.preventDefault();fetch("/api/add_product",{method:"POST",body:new FormData(e.target)}).then(()=>location.reload())}</script></body></html>"""
+ADMIN_HTML = """<!doctype html><html><head><title>VIXN • Admin</title><style>body{background:#09090b;color:#e6eef8;font-family:system-ui;padding:20px}.c{max-width:1100px;margin:auto}.p{background:#0f172a;padding:20px;border-radius:12px;margin:20px 0}input,textarea,button{padding:10px;margin:5px 0;border-radius:8px;width:100%;background:#1e293b;color:white;border:none}button{background:#3b82f6;cursor:pointer}.del{background:#ef4444;padding:8px 16px;width:auto}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{padding:10px;border-bottom:1px solid #334155;text-align:left}img{max-height:60px;border-radius:8px}</style></head><body><div class="c"><h1>VIXN • Admin Panel</h1><a href="/admin/logout"><button style="background:#ef4444">Logout</button></a><a href="/"><button style="float:right">View Shop</button></a><div class="p"><h2>Add Product</h2><form id="f" enctype="multipart/form-data"><input name=name placeholder="Name" required><input name=price placeholder="Price (e.g. 50, 49.99, 100)" required><input name=image placeholder="Image URL"><input type=file name=image_file><textarea name=description placeholder="Description"></textarea><button type=submit>Add</button></form></div><div class="p"><h2>Products ({{products|length}})</h2><table><tr><th>Img</th><th>Name</th><th>Price</th><th>Action</th></tr>{% for p in products %}<tr><td><img src="{{p.image}}"></td><td><strong>{{p.name}}</strong><br><small style="color:#9aa3b2">{{p.description}}</small></td><td>\( {{p.price}}</td><td><button class="del" onclick="if(confirm('Delete?'))fetch('/api/delete_product',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:{{p.id}}})}).then(()=>location.reload())">Delete</button></td></tr>{% endfor %}</table></div><div class="p"><h2>Purchases ({{purchases|length}})</h2><table><tr><th>Time</th><th>Email</th><th>Total</th></tr>{% for p in purchases|reverse %}<tr><td>{{p.timestamp[:19].replace("T"," ")}}</td><td>{{p.email}}</td><td> \){{p.total}}</td></tr>{% endfor %}</table></div><script>document.getElementById("f").onsubmit=e=>{e.preventDefault();fetch("/api/add_product",{method:"POST",body:new FormData(e.target)}).then(()=>location.reload())}</script></body></html>"""
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
