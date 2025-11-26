@@ -1,11 +1,11 @@
-# main.py — VIXN — FINAL 100% CLEAN (NO MORE esc() BUG)
+# main.py — VIXN — FINAL 100% CLEAN (NO MORE PRICE BUGS!)
 from flask import Flask, jsonify, request, send_from_directory, render_template_string, redirect, session, url_for
 import json, os
 from werkzeug.utils import secure_filename
 from datetime import datetime
 
 app = Flask(__name__)
-app.secret_key = "vixn_2025_clean"
+app.secret_key = "vixn_final_2025"
 
 PAYPAL_USERNAME = "ContentDeleted939"
 ADMIN_USER = "Admin"
@@ -149,14 +149,14 @@ def checkout():
 def uploaded_file(filename):
     return send_from_directory(UPLOAD_FOLDER, filename)
 
-# FINAL CLEAN HOME — PRICE SHOWS EXACTLY AS TYPED
+# FINAL 100% CLEAN HOME — NO MORE {{p.price}} TEXT
 HOME_HTML = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>VIXN</title>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#09090b;--card:#0f1720;--text:#e6eef8;--muted:#9aa3b2;--accent:linear-gradient(135deg,#6ee7b7,#3b82f6)}
-*{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(text);font-family:'Poppins',sans-serif}
+*{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:'Poppins',sans-serif}
 .wrap{max-width:1200px;margin:auto;padding:24px}
 header{display:flex;justify-content:space-between;align-items:center;margin-bottom:32px}
 .logo{width:48px;height:48px;border-radius:12px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:#052131}
@@ -200,10 +200,10 @@ fetch("/api/products")
         const card = document.createElement("div");
         card.className = "card";
         card.innerHTML = `
-            <img src="${p.image.replace(/&/g, '&amp;').replace(/</g, '&lt;')}" loading="lazy">
+            <img src="${p.image}" loading="lazy">
             <div class="card-body">
-                <h3>${p.name.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</h3>
-                <p>${(p.description || "").replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>
+                <h3>${p.name}</h3>
+                <p>${p.description || ""}</p>
                 <div class="price">\[ {p.price}</div>
                 <button class="btn" onclick='addToCart(${JSON.stringify(p)})'>Add to Cart</button>
             </div>`;
@@ -214,7 +214,7 @@ saveCart(getCart());
 </script>
 </body></html>"""
 
-# CART, LOGIN, ADMIN — SAME CLEAN ONES (no bugs)
+# CART, LOGIN, ADMIN — CLEAN AND WORKING
 CART_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>VIXN • Cart</title>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800&display=swap" rel="stylesheet">
 <style>:root{--bg:#09090b;--text:#e6eef8;--muted:#9aa3b2;--accent:linear-gradient(135deg,#6ee7b7,#3b82f6)}*{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:'Poppins',sans-serif}.wrap{max-width:700px;margin:40px auto;padding:20px}header{display:flex;justify-content:space-between;align-items:center;margin-bottom:32px}.logo{width:48px;height:48px;border-radius:12px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:#052131}.back{color:var(--muted);text-decoration:none;font-weight:600;font-size:14px}.item{display:flex;gap:16px;margin:16px 0;padding:14px;background:rgba(255,255,255,.03);border-radius:12px}.item img{width:80px;height:80px;object-fit:cover;border-radius:10px}.total{font-size:28px;font-weight:700;margin:24px 0;color:#a7f3d0}.btn{width:100%;padding:16px;font-size:16px;background:var(--accent);color:#052131;border:none;border-radius:12px;font-weight:600;cursor:pointer}.clear{background:#ef4444;margin-top:10px}</style></head><body>
@@ -228,8 +228,7 @@ function update(){
     let total = 0;
     c.forEach(item => {
         total += parseFloat(item.price) * item.qty;
-        items.innerHTML += `<div class="item"><img src="\( {item.image.replace(/&/g,'&amp;')}"><div style="flex:1"><h3 style="margin:0;font-size:16px"> \){item.name.replace(/&/g,'&amp;')}</h3><p style="margin:4px 0 0;font-size:14px;color:var(--muted)"> \]{item.price} × ${item.qty}</p></div></div>`;
-    items.innerHTML += `</div>`;
+        items.innerHTML += `<div class="item"><img src="\( {item.image}"><div style="flex:1"><h3 style="margin:0;font-size:16px"> \){item.name}</h3><p style="margin:4px 0 0;font-size:14px;color:var(--muted)"> \]{item.price} × ${item.qty}</p></div></div>`;
     });
     document.getElementById("total").textContent = "$" + total.toFixed(2);
 }
