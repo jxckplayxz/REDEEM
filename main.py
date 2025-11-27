@@ -1,4 +1,3 @@
-# main.py — VIXN 2025 ULTIMATE EDITION — MODERN UI + ICONS + ANIMATIONS
 from flask import Flask, jsonify, request, send_from_directory, render_template_string, redirect, session, url_for
 import json, os
 from werkzeug.utils import secure_filename
@@ -13,39 +12,47 @@ ADMIN_PASS = "admin12"
 
 PRODUCTS_FILE = 'products.json'
 PURCHASES_FILE = 'purchases.json'
+REQUESTS_FILE = 'requests.json'
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# Ensure data files exist
-for f in [PRODUCTS_FILE, PURCHASES_FILE]:
+for f in [PRODUCTS_FILE, PURCHASES_FILE, REQUESTS_FILE]:
     if not os.path.exists(f):
         with open(f, 'w', encoding='utf-8') as fp:
             json.dump([], fp)
 
 def read_products():
-    try:
-        with open(PRODUCTS_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except:
-        return []
+    with open(PRODUCTS_FILE, 'r', encoding='utf-8') as f:
+        return json.load(f)
 
 def write_products(data):
     with open(PRODUCTS_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2)
 
 def read_purchases():
-    try:
-        with open(PURCHASES_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except:
-        return []
+    with open(PURCHASES_FILE, 'r', encoding='utf-8') as f:
+        return json.load(f)
 
 def write_purchases(data):
     with open(PURCHASES_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2)
 
-def next_id():
-    return max([p.get("id", 0) for p in read_products()], default=0) + 1
+def read_requests():
+    with open(REQUESTS_FILE, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+def write_requests(data):
+    with open(REQUESTS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2)
+
+def next_id(file):
+    data = []
+    try:
+        with open(file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except:
+        pass
+    return max([x.get("id", 0) for x in data], default=0) + 1
 
 def login_required(f):
     from functools import wraps
@@ -72,7 +79,7 @@ def admin():
         else:
             return render_template_string(LOGIN_HTML, error="Wrong credentials")
     if session.get("logged_in"):
-        return render_template_string(ADMIN_HTML, products=read_products(), purchases=read_purchases())
+        return render_template_string(ADMIN_HTML, products=read_products(), purchases=read_purchases(), requests=read_requests())
     return render_template_string(LOGIN_HTML)
 
 @app.route("/admin/logout")
@@ -87,48 +94,95 @@ def api_products():
 @app.route("/api/add_product", methods=["POST"])
 @login_required
 def add_product():
-    try:
-        data = request.form
-        image = data.get("image", "").strip()
-        if "image_file" in request.files and request.files["image_file"].filename:
-            file = request.files["image_file"]
-            fn = secure_filename(file.filename)
-            file.save(os.path.join(UPLOAD_FOLDER, fn))
-            image = url_for("uploaded_file", filename=fn)
+    data = request.form
+    image = data.get("image", "").strip()
+    if "image_file" in request.files and request.files["image_file"].filename:
+        file = request.files["image_file"]
+        fn = secure_filename(file.filename)
+        file.save(os.path.join(UPLOAD_FOLDER, fn))
+        image = url_for("uploaded_file", filename=fn)
 
-        name = data.get("name", "").strip()
-        price = data.get("price", "").strip()
-        desc = data.get("description", "")
+    name = data.get("name", "").strip()
+    price = data.get("price", "").strip()
+    desc = data.get("description", "")
 
-        if not name or not price:
-            return jsonify({"ok": False, "error": "Name and price required"}), 400
+    if not name or not price:
+        return jsonify({"ok": False, "error": "Name and price required"}), 400
 
-        new_prod = {
-            "id": next_id(),
-            "name": name,
-            "price": price,
-            "image": image or "https://via.placeholder.com/400x300/1e293b/e6eef8?text=No+Image",
-            "description": desc
-        }
-        prods = read_products()
-        prods.append(new_prod)
-        write_products(prods)
-        return jsonify({"ok": True})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+    new_prod = {
+        "id": next_id(PRODUCTS_FILE),
+        "name": name,
+        "price": price,
+        "image": image or "https://via.placeholder.com/400x300/1e293b/e6eef8?text=No+Image",
+        "description": desc
+    }
+    prods = read_products()
+    prods.append(new_prod)
+    write_products(prods)
+    return jsonify({"ok": True})
 
 @app.route("/api/delete_product", methods=["POST"])
 @login_required
 def delete_product():
-    try:
-        pid = request.get_json().get("id")
-        if not pid:
-            return jsonify({"ok": False, "error": "No ID"}), 400
-        products = [p for p in read_products() if p["id"] != pid]
-        write_products(products)
-        return jsonify({"ok": True})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+    pid = request.get_json().get("id")
+    if not pid:
+        return jsonify({"ok": False, "error": "No ID"}), 400
+    products = [p for p in read_products() if p["id"] != pid]
+    write_products(products)
+    return jsonify({"ok": True})
+
+@app.route("/api/request_item", methods=["POST"])
+def request_item():
+    data = request.get_json() or {}
+    name = data.get("name", "").strip()
+    price = data.get("price", "").strip()
+    email = data.get("email", "").strip()
+    if not name or not price or not email:
+        return jsonify({"ok": False, "error": "All fields required"}), 400
+
+    req = {
+        "id": next_id(REQUESTS_FILE),
+        "name": name,
+        "price": price,
+        "email": email,
+        "timestamp": datetime.now().isoformat(),
+        "status": "pending"
+    }
+    reqs = read_requests()
+    reqs.append(req)
+    write_requests(reqs)
+    return jsonify({"ok": True, "msg": "Request sent! Admin will review it soon."})
+
+@app.route("/api/approve_request", methods=["POST"])
+@login_required
+def approve_request():
+    rid = request.get_json().get("id")
+    req = next((r for r in read_requests() if r["id"] == rid), None)
+    if not req:
+        return jsonify({"ok": False})
+
+    new_prod = {
+        "id": next_id(PRODUCTS_FILE),
+        "name": req["name"],
+        "price": req["price"],
+        "image": "https://via.placeholder.com/400x300/1e293b/e6eef8?text=Requested+Item",
+        "description": f"Requested by {req['email']}"
+    }
+    prods = read_products()
+    prods.append(new_prod)
+    write_products(prods)
+
+    reqs = [r for r in read_requests() if r["id"] != rid]
+    write_requests(reqs)
+    return jsonify({"ok": True})
+
+@app.route("/api/deny_request", methods=["POST"])
+@login_required
+def deny_request():
+    rid = request.get_json().get("id")
+    reqs = [r for r in read_requests() if r["id"] != rid]
+    write_requests(reqs)
+    return jsonify({"ok": True})
 
 @app.route("/api/checkout", methods=["POST"])
 def checkout():
@@ -150,8 +204,6 @@ def checkout():
 def uploaded_file(filename):
     return send_from_directory(UPLOAD_FOLDER, filename)
 
-# ============================ NEW MODERN UI WITH ICONS ============================
-
 HOME_HTML = """<!doctype html>
 <html lang="en">
 <head>
@@ -161,155 +213,41 @@ HOME_HTML = """<!doctype html>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 <style>
-:root {
-  --bg: #0a0a0a;
-  --card: rgba(20, 20, 30, 0.6);
-  --border: rgba(255, 255, 255, 0.1);
-  --text: #f0f0f5;
-  --muted: #a0a0c0;
-  --accent: #00ff9d;
-  --accent2: #7b2ff7;
-}
-* { margin:0; padding:0; box-sizing:border-box; }
-body {
-  font-family: 'Inter', sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  min-height: 100vh;
-  background-image: radial-gradient(circle at 10% 20%, rgba(123, 47, 247, 0.15) 0%, transparent 20%),
-                    radial-gradient(circle at 90% 80%, rgba(0, 255, 157, 0.15) 0%, transparent 20%);
-}
-.wrap { max-width: 1300px; margin: 0 auto; padding: 2rem 1rem; }
-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 3rem;
-  position: relative;
-}
-.logo {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 28px;
-  font-weight: 800;
-  background: linear-gradient(135deg, var(--accent), var(--accent2));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-.cart-btn {
-  background: rgba(255,255,255,0.1);
-  backdrop-filter: blur(10px);
-  border: 1px solid var(--border);
-  padding: 12px 24px;
-  border-radius: 16px;
-  color: white;
-  text-decoration: none;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  transition: all 0.3s;
-}
-.cart-btn:hover { transform: translateY(-3px); background: rgba(255,255,255,0.2); }
-.products {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 24px;
-}
-.card {
-  background: var(--card);
-  border-radius: 20px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  backdrop-filter: blur(12px);
-  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-  position: relative;
-}
-.card:hover {
-  transform: translateY(-16px) scale(1.02);
- 1.02);
-  box-shadow: 0 20px 40px rgba(0,0,0,0.4);
-  border-color: var(--accent);
-}
-.card img {
-  width: 100%;
-  height: 200px;
-  object-fit: cover;
-}
-.card-body {
-  padding: 20px;
-}
-.card-body h3 {
-  font-size: 18px;
-  margin: 0 0 8px;
-  font-weight: 600;
-}
-.card-body p {
-  color: var(--muted);
-  font-size: 14px;
-  line-height: 1.5;
-  margin-bottom: 16px;
-}
-.price {
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--accent);
-  margin-bottom: 16px;
-}
-.btn {
-  width: 100%;
-  padding: 14px;
-  background: linear-gradient(135deg, var(--accent), var(--accent2));
-  color: black;
-  border: none;
-  border-radius: 14px;
-  font-weight: 700;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  transition: all 0.3s;
-}
-.btn:hover {
-  transform: scale(1.05);
-  box-shadow: 0 10px 20px rgba(0, 255, 157, 0.3);
-}
-.floating-cart {
-  position: fixed;
-  bottom: 30px;
-  right: 30px;
-  background: linear-gradient(135deg, var(--accent), var(--accent2));
-  width: 60px;
-  height: 60px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-  cursor: pointer;
-  z-index: 1000;
-  animation: pulse 2s infinite;
-}
-@keyframes pulse {
-  0% { box-shadow: 0 0 0 0 rgba(0, 255, 157, 0.4); }
-  70% { box-shadow: 0 0 0 15px rgba(0, 255, 157, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(0, 255, 157, 0); }
-}
+:root{--bg:#0a0a0a;--card:rgba(20,20,30,0.6);--border:rgba(255,255,255,0.1);--text:#f0f0f5;--muted:#a0a0c0;--accent:#00ff9d;--accent2:#7b2ff7}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;background-image:radial-gradient(circle at 10% 20%,rgba(123,47,247,0.15)0%,transparent 20%),radial-gradient(circle at 90% 80%,rgba(0,255,157,0.15)0%,transparent 20%)}
+.wrap{max-width:1300px;margin:0 auto;padding:2rem 1rem}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:3rem}
+.logo{display:flex;align-items:center;gap:12px;font-size:28px;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.cart-btn{background:rgba(255,255,255,0.1);backdrop-filter:blur(10px);border:1px solid var(--border);padding:12px 24px;border-radius:16px;color:white;text-decoration:none;font-weight:600;display:flex;align-items:center;gap:8px;transition:all .3s}
+.cart-btn:hover{transform:translateY(-3px);background:rgba(255,255,255,0.2)}
+.products{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:24px}
+.card{background:var(--card);border-radius:20px;overflow:hidden;border:1px solid var(--border);backdrop-filter:blur(12px);transition:all .4s cubic-bezier(.175,.885,.32,1.275)}
+.card:hover{transform:translateY(-16px) scale(1.02);box-shadow:0 20px 40px rgba(0,0,0,0.4);border-color:var(--accent)}
+.card img{width:100%;height:200px;object-fit:cover}
+.card-body{padding:20px}
+.card-body h3{font-size:18px;margin:0 0 8px;font-weight:600}
+.card-body p{color:var(--muted);font-size:14px;line-height:1.5;margin-bottom:16px}
+.price{font-size:24px;font-weight:700;color:var(--accent);margin-bottom:16px}
+.btn{width:100%;padding:14px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:black;border:none;border-radius:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;transition:all .3s}
+.btn:hover{transform:scale(1.05);box-shadow:0 10px 20px rgba(0,255,157,0.3)}
+.floating-cart{position:fixed;bottom:30px;right:30px;background:linear-gradient(135deg,var(--accent),var(--accent2));width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 10px 30px rgba(0,0,0,0.5);cursor:pointer;z-index:1000;animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(0,255,157,0.4)}70%{box-shadow:0 0 0 15px rgba(0,255,157,0)}100%{box-shadow:0 0 0 0 rgba(0,255,157,0)}}
+.request-btn{position:fixed;bottom:30px;left:30px;background:#7b2ff7;width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 10px 30px rgba(0,0,0,0.5);cursor:pointer;z-index:1000}
+.modal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);align-items:center;justify-content:center;z-index:2000}
+.modal-content{background:var(--card);padding:30px;border-radius:20px;width:90%;max-width:400px;border:1px solid var(--border)}
+.modal input, .modal button{width:100%;padding:14px;margin:10px 0;border-radius:12px;border:none}
+.modal input{background:#1e1e2e;color:white}
+.modal button{background:var(--accent);color:black;font-weight:700}
+.close{cursor:pointer;float:right;font-size:24px}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <div class="logo">
-      <i data-lucide="zap" style="width:36px;height:36px;"></i> VIXN
-    </div>
-    <a href="/cart" class="cart-btn">
-      <i data-lucide="shopping-cart"></i> Cart (<span id="count">0</span>)
-    </a>
+    <div class="logo"><i data-lucide="zap" style="width:36px;height:36px;"></i> VIXN</div>
+    <a href="/cart" class="cart-btn"><i data-lucide="shopping-cart"></i> Cart (<span id="count">0</span>)</a>
   </header>
-
   <div id="list" class="products"></div>
 </div>
 
@@ -318,43 +256,59 @@ header {
   <span style="position:absolute;top:-8px;right:-8px;background:#ff3b5c;color:white;width:24px;height:24px;border-radius:50%;font-size:12px;display:flex;align-items:center;justify-content:center;font-weight:bold;" id="floatCount">0</span>
 </a>
 
+<div class="request-btn" onclick="document.getElementById('reqModal').style.display='flex'">
+  <i data-lucide="plus-circle" style="width:32px;height:32px;color:white;"></i>
+</div>
+
+<div id="reqModal" class="modal">
+  <div class="modal-content">
+    <span class="close" onclick="document.getElementById('reqModal').style.display='none'">×</span>
+    <h2 style="margin-bottom:20px">Request Item</h2>
+    <input id="reqName" placeholder="Item Name">
+    <input id="reqPrice" placeholder="Suggested Price (e.g. 19.99)">
+    <input id="reqEmail" placeholder="Your Email">
+    <button onclick="sendRequest()">Send Request</button>
+  </div>
+</div>
+
 <script>
 lucide.createIcons();
-
 function $(s){return document.querySelector(s)}
-function getCart(){return JSON.parse(localStorage.getItem('cart') || '[]')}
+function getCart(){return JSON.parse(localStorage.getItem('cart')||'[]')}
 function saveCart(c){
-  localStorage.setItem('cart', JSON.stringify(c));
-  const totalItems = c.reduce((s,i)=>s+i.qty,0);
-  $('#count').textContent = totalItems;
-  $('#floatCount').textContent = totalItems;
-  document.getElementById('floatingCart').style.display = totalItems > 0 ? 'flex' : 'none';
+  localStorage.setItem('cart',JSON.stringify(c));
+  const totalItems=c.reduce((s,i)=>s+i.qty,0);
+  $('#count').textContent=totalItems;
+  $('#floatCount').textContent=totalItems;
+  $('#floatingCart').style.display=totalItems>0?'flex':'none';
 }
 function addToCart(p){
-  let c = getCart();
-  let ex = c.find(i=>i.id===p.id);
-  if(ex) ex.qty++;
-  else c.push({...p, qty:1});
+  let c=getCart();
+  let ex=c.find(i=>i.id===p.id);
+  if(ex)ex.qty++;else c.push({...p,qty:1});
   saveCart(c);
   alert("Added to cart!");
 }
+function sendRequest(){
+  const name=$('#reqName').value.trim();
+  const price=$('#reqPrice').value.trim();
+  const email=$('#reqEmail').value.trim();
+  if(!name||!price||!email||!email.includes('@'))return alert("Fill all fields correctly");
+  fetch('/api/request_item',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,price,email})})
+  .then(r=>r.json())
+  .then(d=>{alert(d.msg||d.error);if(d.ok)document.getElementById('reqModal').style.display='none';});
+}
 
-fetch("/api/products")
-.then(r => r.json())
-.then(products => {
-  const list = $("#list");
-  if (products.length === 0) {
-    list.innerHTML = `<p style="text-align:center;color:var(--muted);grid-column:1/-1;font-size:18px;">No products available yet</p>`;
-    return;
-  }
-  products.forEach(p => {
-    const card = document.createElement("div");
-    card.className = "card";
-    card.innerHTML = `
+fetch("/api/products").then(r=>r.json()).then(products=>{
+  const list=$("#list");
+  if(products.length===0){list.innerHTML=`<p style="text-align:center;color:var(--muted);grid-column:1/-1;font-size:18px;">No products available yet</p>`;return;}
+  products.forEach(p=>{
+    const card=document.createElement("div");card.className="card";
+    card.innerHTML=`
       <img src="\( {p.image}" alt=" \){p.name}" loading="lazy">
       <div class="card-body">
         <h3>${p.name}</h3>
-        <p>${p.description || "No description"}</p>
+        <p>${p.description||"No description"}</p>
         <div class="price">\[ {p.price}</div>
         <button class="btn" onclick='addToCart(${JSON.stringify(p)})'>
           <i data-lucide="plus"></i> Add to Cart
@@ -363,15 +317,12 @@ fetch("/api/products")
     list.appendChild(card);
   });
   lucide.createIcons();
-})
-.catch(() => $("#list").innerHTML = "<p style='text-align:center;color:#888'>Error loading products</p>");
-
+}).catch(()=>{$("#list").innerHTML="<p style='text-align:center;color:#888'>Error loading products</p>"});
 saveCart(getCart());
 </script>
 </body>
 </html>"""
 
-# CART PAGE - ALSO UPGRADED
 CART_HTML = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>VIXN • Cart</title>
@@ -383,7 +334,7 @@ CART_HTML = """<!doctype html>
 body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:2rem}
 .wrap{max-width:800px;margin:auto}
 header{display:flex;justify-content:space-between;align-items:center;margin-bottom:3rem}
-.logo{font-size:28px;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--accent2);-webkit-background-clip:text;-webkit-text-fill-color:transparent;display:flex;align-items:center;gap:12px}
+.logo{font-size:28px;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;display:flex;align-items:center;gap:12px}
 .back{color:var(--muted);text-decoration:none;font-weight:600;display:flex;align-items:center;gap:8px}
 .item{display:flex;gap:20px;padding:20px;background:var(--card);border:1px solid var(--border);border-radius:16px;margin-bottom:16px}
 .item img{width:100px;height:100px;object-fit:cover;border-radius:12px}
@@ -391,9 +342,9 @@ header{display:flex;justify-content:space-between;align-items:center;margin-bott
 .item-name{font-size:18px;font-weight:600}
 .item-price{color:var(--muted);margin:8px 0}
 .total{font-size:32px;font-weight:700;color:var(--accent);text-align:center;margin:2rem 0}
-.btn-full{width:100%;padding:18px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:black;border:none;border-radius:16px;font-size:18px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:12px;margin:10px 0;transition:0.3s}
+.btn-full{width:100%;padding:18px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:black;border:none;border-radius:16px;font-size:18px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:12px;margin:10px 0;transition:.3s}
 .btn-full:hover{transform:scale(1.02)}
-.clear-btn{background:#ef4444 !important;color:white !important}
+.clear-btn{background:#ef4444!important;color:white!important}
 </style></head><body>
 <div class="wrap">
 <header>
@@ -408,58 +359,37 @@ header{display:flex;justify-content:space-between;align-items:center;margin-bott
 </div>
 <script>
 lucide.createIcons();
-function getCart(){return JSON.parse(localStorage.getItem('cart') || '[]')}
+function getCart(){return JSON.parse(localStorage.getItem('cart')||'[]')}
 function update(){
-  const c = getCart();
-  const items = document.getElementById("items");
-  items.innerHTML = c.length ? "" : `<p style="text-align:center;color:var(--muted);font-size:18px;padding:4rem">Your cart is empty</p>`;
-  let total = 0;
-  c.forEach(item => {
-    total += parseFloat(item.price) * item.qty;
-    items.innerHTML += `<div class="item">
-      <img src="${item.image}">
-      <div class="item-info">
-        <div class="item-name">${item.name}</div>
-        <div class="item-price"> \]{item.price} × ${item.qty} = $${(item.price * item.qty).toFixed(2)}</div>
-      </div>
-    </div>`;
+  const c=getCart();
+  const items=document.getElementById("items");
+  items.innerHTML=c.length?"":`<p style="text-align:center;color:var(--muted);font-size:18px;padding:4rem">Your cart is empty</p>`;
+  let total=0;
+  c.forEach(i=>{total+=parseFloat(i.price)*i.qty;
+    items.innerHTML+=`<div class="item"><img src="\( {i.image}"><div class="item-info"><div class="item-name"> \){i.name}</div><div class="item-price"> \]{i.price} × ${i.qty} = $${(i.price*i.qty).toFixed(2)}</div></div></div>`;
   });
-  document.getElementById("total").textContent = "$" + total.toFixed(2);
+  document.getElementById("total").textContent="$"+total.toFixed(2);
 }
 update();
-
-document.getElementById("checkout").onclick = () => {
-  const cart = getCart();
-  if (!cart.length) return alert("Cart is empty!");
-  const total = cart.reduce((s,i) => s + parseFloat(i.price) * i.qty, 0).toFixed(2);
-  const email = prompt("Total: $" + total + "\\nEnter your delivery email:", "");
-  if (!email || !email.includes("@")) return alert("Valid email required!");
-  fetch("/api/checkout", {
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({email, cart})
-  })
+document.getElementById("checkout").onclick=()=>{
+  const cart=getCart();
+  if(!cart.length)return alert("Cart is empty!");
+  const total=cart.reduce((s,i)=>s+parseFloat(i.price)*i.qty,0).toFixed(2);
+  const email=prompt("Total: $"+total+"\\nEnter your delivery email:","");
+  if(!email||!email.includes("@"))return alert("Valid email required!");
+  fetch("/api/checkout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,cart})})
   .then(r=>r.json())
-  .then(res=>{
-    if(res.ok){
-      window.open(res.paypal_url,"_blank");
-      alert("Payment link opened! Thank you for your purchase!");
-      localStorage.removeItem("cart");
-      update();
-    }
-  });
+  .then(res=>{if(res.ok){window.open(res.paypal_url,"_blank");alert("Payment link opened! Thank you!");localStorage.removeItem("cart");update();}});
 };
 </script>
 </body></html>"""
 
-# ADMIN & LOGIN - CLEAN & MODERN
 LOGIN_HTML = """<!doctype html><html><head><title>VIXN • Admin Login</title><style>
 body{background:#0a0a0a;color:#f0f0f5;display:grid;place-items:center;height:100vh;margin:0;font-family:'Inter',sans-serif}
 .box{background:rgba(20,20,30,0.8);padding:50px;border-radius:20px;width:380px;border:1px solid rgba(255,255,255,0.1);backdrop-filter:blur(12px)}
 h2{text-align:center;margin-bottom:30px;background:linear-gradient(135deg,#00ff9d,#7b2ff7);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-size:28px}
 input,button{padding:14px;margin:10px 0;width:100%;border-radius:12px;border:none;font-size:16px}
 input{background:#1e1e2e;color:white}
-button{background:hover{background:#7b2ff7}
 button{background:#00ff9d;color:black;font-weight:700;cursor:pointer}
 .error{color:#ff6b6b;text-align:center;margin-top:10px}
 </style></head><body>
@@ -475,12 +405,13 @@ button{background:#00ff9d;color:black;font-weight:700;cursor:pointer}
 
 ADMIN_HTML = """<!doctype html><html><head><title>VIXN • Admin Panel</title><style>
 body{background:#0a0a0a;color:#f0f0f5;font-family:'Inter',sans-serif;padding:2rem}
-.c{max-width:1200px;margin:auto}
+.c{max-width:1300px;margin:auto}
 h1{background:linear-gradient(135deg,#00ff9d,#7b2ff7);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .p{background:rgba(20,20,30,0.6);padding:24px;border-radius:16px;margin:20px 0;border:1px solid rgba(255,255,255,0.1)}
 input,textarea,button{padding:12px;margin:8px 0;border-radius:12px;width:100%;background:#1e1e2e;color:white;border:none}
 button{background:#00ff9d;color:black;font-weight:700;cursor:pointer}
-.del{background:#ef4444 !important;color:white !important;padding:10px 20px;width:auto}
+.del{background:#ef4444!important;color:white!important;padding:10px 20px;width:auto}
+.approve{background:#10b981!important;color:white!important}
 table{width:100%;border-collapse:collapse;margin-top:20px}
 th,td{padding:12px;border-bottom:1px solid rgba(255,255,255,0.1);text-align:left}
 img{max-height:80px;border-radius:12px}
@@ -489,6 +420,7 @@ a button{float:right;margin-left:10px}
 <h1>VIXN • Admin Panel</h1>
 <a href="/admin/logout"><button style="background:#ef4444">Logout</button></a>
 <a href="/"><button style="background:#00ff9d;color:black">View Shop</button></a>
+
 <div class="p"><h2>Add New Product</h2>
 <form id="f" enctype="multipart/form-data">
 <input name=name placeholder="Product Name" required>
@@ -498,6 +430,17 @@ a button{float:right;margin-left:10px}
 <textarea name=description placeholder="Description (optional)" rows="3"></textarea>
 <button type=submit>Add Product</button>
 </form></div>
+
+<div class="p"><h2>Item Requests ({{requests|length}})</h2>
+<table><tr><th>Name</th><th>Price</th><th>Email</th><th>Time</th><th>Action</th></tr>
+{% for r in requests %}
+<tr><td><strong>{{r.name}}</strong></td><td>${{r.price}}</td><td>{{r.email}}</td><td>{{r.timestamp[:19].replace('T',' ')}}</td>
+<td>
+<button class="approve" onclick="fetch('/api/approve_request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:{{r.id}}})}).then(()=>location.reload())">Approve</button>
+<button class="del" onclick="fetch('/api/deny_request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:{{r.id}}})}).then(()=>location.reload())">Deny</button>
+</td></tr>
+{% endfor %}
+</table></div>
 
 <div class="p"><h2>Products ({{products|length}})</h2>
 <table><tr><th>Image</th><th>Name</th><th>Price</th><th>Description</th><th>Action</th></tr>
