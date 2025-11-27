@@ -1,4 +1,4 @@
-# main.py — VIXN 2025 ULTIMATE EDITION — MODERN UI + ICONS + ANIMATIONS
+# main.py — VIXN 2025 ULTIMATE EDITION — MODERN UI + ICONS + ANIMATIONS (FIXED)
 from flask import Flask, jsonify, request, send_from_directory, render_template_string, redirect, session, url_for
 import json, os
 from werkzeug.utils import secure_filename
@@ -45,7 +45,10 @@ def write_purchases(data):
         json.dump(data, f, indent=2)
 
 def next_id():
-    return max([p.get("id", 0) for p in read_products()], default=0) + 1
+    prods = read_products()
+    if not prods:
+        return 1
+    return max([p.get("id", 0) for p in prods]) + 1
 
 def login_required(f):
     from functools import wraps
@@ -103,6 +106,13 @@ def add_product():
         if not name or not price:
             return jsonify({"ok": False, "error": "Name and price required"}), 400
 
+        # ensure price is stored as a string number
+        try:
+            price_val = float(price)
+            price = f"{price_val:.2f}"
+        except:
+            return jsonify({"ok": False, "error": "Price must be numeric"}), 400
+
         new_prod = {
             "id": next_id(),
             "name": name,
@@ -122,7 +132,7 @@ def add_product():
 def delete_product():
     try:
         pid = request.get_json().get("id")
-        if not pid:
+        if pid is None:
             return jsonify({"ok": False, "error": "No ID"}), 400
         products = [p for p in read_products() if p["id"] != pid]
         write_products(products)
@@ -138,12 +148,16 @@ def checkout():
     if not email or not cart:
         return jsonify({"ok": False, "error": "Email & cart required"}), 400
 
-    total = sum(float(i["price"]) * i["qty"] for i in cart)
+    try:
+        total = sum(float(i["price"]) * int(i.get("qty", 1)) for i in cart)
+    except Exception:
+        return jsonify({"ok": False, "error": "Invalid cart prices/quantity"}), 400
+
     purchases = read_purchases()
-    purchases.append({"timestamp": datetime.now().isoformat(), "email": email, "total": total, "items": cart})
+    purchases.append({"timestamp": datetime.now().isoformat(), "email": email, "total": round(total, 2), "items": cart})
     write_purchases(purchases)
 
-    url = f"https://www.paypal.me/{PAYPAL_USERNAME}/{total}"
+    url = f"https://www.paypal.me/{PAYPAL_USERNAME}/{total:.2f}"
     return jsonify({"ok": True, "paypal_url": url})
 
 @app.route("/uploads/<path:filename>")
@@ -312,7 +326,7 @@ header {
   <div id="list" class="products"></div>
 </div>
 
-<a href="/cart" class="floating-cart" id="floatingCart">
+<a href="/cart" class="floating-cart" id="floatingCart" style="display:none;">
   <i data-lucide="shopping-bag" style="width:28px;height:28px;color:black;"></i>
   <span style="position:absolute;top:-8px;right:-8px;background:#ff3b5c;color:white;width:24px;height:24px;border-radius:50%;font-size:12px;display:flex;align-items:center;justify-content:center;font-weight:bold;" id="floatCount">0</span>
 </a>
@@ -324,53 +338,80 @@ function $(s){return document.querySelector(s)}
 function getCart(){return JSON.parse(localStorage.getItem('cart') || '[]')}
 function saveCart(c){
   localStorage.setItem('cart', JSON.stringify(c));
-  const totalItems = c.reduce((s,i)=>s+i.qty,0);
+  const totalItems = c.reduce((s,i)=>s + (parseInt(i.qty) || 0), 0);
   $('#count').textContent = totalItems;
   $('#floatCount').textContent = totalItems;
   document.getElementById('floatingCart').style.display = totalItems > 0 ? 'flex' : 'none';
 }
 function addToCart(p){
   let c = getCart();
-  let ex = c.find(i=>i.id===p.id);
-  if(ex) ex.qty++;
-  else c.push({...p, qty:1});
+  let ex = c.find(i=>i.id === p.id);
+  if(ex) ex.qty = (parseInt(ex.qty) || 0) + 1;
+  else c.push({id: p.id, name: p.name, price: p.price, image: p.image, qty: 1});
   saveCart(c);
   alert("Added to cart!");
 }
 
+// fetch products and render cards safely (no inline JSON in onclick)
 fetch("/api/products")
 .then(r => r.json())
 .then(products => {
   const list = $("#list");
-  if (products.length === 0) {
+  if (!products || products.length === 0) {
     list.innerHTML = `<p style="text-align:center;color:var(--muted);grid-column:1/-1;font-size:18px;">No products available yet</p>`;
     return;
   }
+
   products.forEach(p => {
     const card = document.createElement("div");
     card.className = "card";
-    card.innerHTML = `
-      <img src="\( {p.image}" alt=" \){p.name}" loading="lazy">
-      <div class="card-body">
-        <h3>${p.name}</h3>
-        <p>${p.description || "No description"}</p>
-        <div class="price">\[ {p.price}</div>
-        <button class="btn" onclick='addToCart(${JSON.stringify(p)})'>
-          <i data-lucide="plus"></i> Add to Cart
-        </button>
-      </div>`;
+
+    const img = document.createElement("img");
+    img.src = p.image || "https://via.placeholder.com/400x300/1e293b/e6eef8?text=No+Image";
+    img.alt = p.name || "Product Image";
+
+    const body = document.createElement("div");
+    body.className = "card-body";
+
+    const h3 = document.createElement("h3");
+    h3.textContent = p.name;
+
+    const desc = document.createElement("p");
+    desc.textContent = p.description || "No description";
+
+    const price = document.createElement("div");
+    price.className = "price";
+    // ensure price displays as $xx.xx
+    let priceNum = parseFloat(p.price || 0);
+    price.textContent = "$" + priceNum.toFixed(2);
+
+    const btn = document.createElement("button");
+    btn.className = "btn";
+    btn.innerHTML = `<i data-lucide="plus"></i> Add to Cart`;
+    btn.addEventListener('click', ()=> addToCart(p));
+
+    body.appendChild(h3);
+    body.appendChild(desc);
+    body.appendChild(price);
+    body.appendChild(btn);
+
+    card.appendChild(img);
+    card.appendChild(body);
     list.appendChild(card);
   });
+
+  // re-create icons after DOM changes
   lucide.createIcons();
 })
 .catch(() => $("#list").innerHTML = "<p style='text-align:center;color:#888'>Error loading products</p>");
 
+// initialize cart UI
 saveCart(getCart());
 </script>
 </body>
 </html>"""
 
-# CART PAGE - ALSO UPGRADED
+# CART PAGE - ALSO UPGRADED (FIXED TEMPLATE JS)
 CART_HTML = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>VIXN • Cart</title>
@@ -403,35 +444,63 @@ header{display:flex;justify-content:space-between;align-items:center;margin-bott
 <div id="items"></div>
 <div class="total">Total: <span id="total">$0.00</span></div>
 <button id="checkout" class="btn-full"><i data-lucide="credit-card"></i> Checkout with PayPal</button>
-<button onclick="if(confirm('Clear cart?')){localStorage.removeItem('cart');location.reload()}" class="btn-full clear-btn"><i data-lucide="trash-2"></i> Clear Cart</button>
+<button id="clearCart" class="btn-full clear-btn"><i data-lucide="trash-2"></i> Clear Cart</button>
 </div>
 <script>
 lucide.createIcons();
-function getCart(){return JSON.parse(localStorage.getItem('cart') || '[]')}
+
+function getCart(){ return JSON.parse(localStorage.getItem('cart') || '[]'); }
+
 function update(){
   const c = getCart();
   const items = document.getElementById("items");
-  items.innerHTML = c.length ? "" : `<p style="text-align:center;color:var(--muted);font-size:18px;padding:4rem">Your cart is empty</p>`;
+  items.innerHTML = '';
+  if (!c.length) {
+    items.innerHTML = `<p style="text-align:center;color:var(--muted);font-size:18px;padding:4rem">Your cart is empty</p>`;
+    document.getElementById("total").textContent = "$0.00";
+    return;
+  }
   let total = 0;
   c.forEach(item => {
-    total += parseFloat(item.price) * item.qty;
-    items.innerHTML += `<div class="item">
-      <img src="${item.image}">
-      <div class="item-info">
-        <div class="item-name">${item.name}</div>
-        <div class="item-price"> \]{item.price} × ${item.qty} = $${(item.price * item.qty).toFixed(2)}</div>
-      </div>
-    </div>`;
+    const qty = parseInt(item.qty) || 0;
+    const priceNum = parseFloat(item.price) || 0;
+    total += priceNum * qty;
+
+    const itemHTML = document.createElement('div');
+    itemHTML.className = 'item';
+
+    const img = document.createElement('img');
+    img.src = item.image || 'https://via.placeholder.com/100';
+    img.alt = item.name;
+
+    const info = document.createElement('div');
+    info.className = 'item-info';
+
+    const name = document.createElement('div');
+    name.className = 'item-name';
+    name.textContent = item.name;
+
+    const price = document.createElement('div');
+    price.className = 'item-price';
+    price.textContent = `$${priceNum.toFixed(2)} × ${qty} = $${(priceNum * qty).toFixed(2)}`;
+
+    info.appendChild(name);
+    info.appendChild(price);
+
+    itemHTML.appendChild(img);
+    itemHTML.appendChild(info);
+    items.appendChild(itemHTML);
   });
   document.getElementById("total").textContent = "$" + total.toFixed(2);
 }
+
 update();
 
 document.getElementById("checkout").onclick = () => {
   const cart = getCart();
   if (!cart.length) return alert("Cart is empty!");
-  const total = cart.reduce((s,i) => s + parseFloat(i.price) * i.qty, 0).toFixed(2);
-  const email = prompt("Total: $" + total + "\nEnter your delivery email:", "");
+  const total = cart.reduce((s,i) => s + (parseFloat(i.price) || 0) * (parseInt(i.qty) || 0), 0).toFixed(2);
+  const email = prompt("Total: $" + total + "\\nEnter your delivery email:", "");
   if (!email || !email.includes("@")) return alert("Valid email required!");
   fetch("/api/checkout", {
     method:"POST",
@@ -445,13 +514,24 @@ document.getElementById("checkout").onclick = () => {
       alert("Payment link opened! Thank you for your purchase!");
       localStorage.removeItem("cart");
       update();
+      // update floating counts on home if open in another tab - best effort
+      try{ localStorage.setItem('cart', JSON.stringify([])); }catch(e){}
+    } else {
+      alert("Checkout error: " + (res.error || "Unknown"));
     }
-  });
+  })
+  .catch(err => alert("Checkout failed: " + err));
+};
+
+document.getElementById("clearCart").onclick = () => {
+  if (!confirm("Clear cart?")) return;
+  localStorage.removeItem('cart');
+  update();
 };
 </script>
 </body></html>"""
 
-# ADMIN & LOGIN - CLEAN & MODERN
+# ADMIN & LOGIN - CLEAN & MODERN (unchanged except minor safety)
 LOGIN_HTML = """<!doctype html><html><head><title>VIXN • Admin Login</title><style>
 body{background:#0a0a0a;color:#f0f0f5;display:grid;place-items:center;height:100vh;margin:0;font-family:'Inter',sans-serif}
 .box{background:rgba(20,20,30,0.8);padding:50px;border-radius:20px;width:380px;border:1px solid rgba(255,255,255,0.1);backdrop-filter:blur(12px)}
