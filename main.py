@@ -1,4 +1,4 @@
-# main.py — VIXN 2025 ULTIMATE EDITION — MODERN UI + REQUEST ITEMS
+# main.py — VIXN 2025 FIXED EDITION
 from flask import Flask, jsonify, request, send_from_directory, render_template_string, redirect, session, url_for
 import json, os
 from werkzeug.utils import secure_filename
@@ -13,11 +13,12 @@ ADMIN_PASS = "admin12"
 
 PRODUCTS_FILE = 'products.json'
 PURCHASES_FILE = 'purchases.json'
+REQUESTS_FILE = 'requests.json'
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # Ensure data files exist
-for f in [PRODUCTS_FILE, PURCHASES_FILE]:
+for f in [PRODUCTS_FILE, PURCHASES_FILE, REQUESTS_FILE]:
     if not os.path.exists(f):
         with open(f, 'w', encoding='utf-8') as fp:
             json.dump([], fp)
@@ -42,6 +43,17 @@ def read_purchases():
 
 def write_purchases(data):
     with open(PURCHASES_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2)
+
+def read_requests():
+    try:
+        with open(REQUESTS_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except:
+        return []
+
+def write_requests(data):
+    with open(REQUESTS_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2)
 
 def next_id():
@@ -72,7 +84,11 @@ def admin():
         else:
             return render_template_string(LOGIN_HTML, error="Wrong credentials")
     if session.get("logged_in"):
-        return render_template_string(ADMIN_HTML, products=read_products(), purchases=read_purchases())
+        return render_template_string(ADMIN_HTML,
+            products=read_products(),
+            purchases=read_purchases(),
+            requests=read_requests()
+        )
     return render_template_string(LOGIN_HTML)
 
 @app.route("/admin/logout")
@@ -146,11 +162,28 @@ def checkout():
     url = f"https://www.paypal.me/{PAYPAL_USERNAME}/{total}"
     return jsonify({"ok": True, "paypal_url": url})
 
+@app.route("/api/request_item", methods=["POST"])
+def request_item():
+    try:
+        data = request.get_json() or {}
+        name = data.get("name", "").strip()
+        desc = data.get("description", "").strip()
+        contact = data.get("contact", "").strip()
+        if not name:
+            return jsonify({"ok": False, "error": "Item name required"}), 400
+        requests = read_requests()
+        requests.append({"name": name, "description": desc, "contact": contact, "date": datetime.now().isoformat()})
+        write_requests(requests)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 @app.route("/uploads/<path:filename>")
 def uploaded_file(filename):
     return send_from_directory(UPLOAD_FOLDER, filename)
 
-# ============================ HOME HTML WITH REQUEST ITEM BUTTON ============================
+# ============================ HTML PAGES ============================
+
 HOME_HTML = """<!doctype html>
 <html lang="en">
 <head>
@@ -160,58 +193,55 @@ HOME_HTML = """<!doctype html>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 <style>
-:root { --bg:#0a0a0a; --card:rgba(20,20,30,0.6); --border:rgba(255,255,255,0.1); --text:#f0f0f5; --muted:#a0a0c0; --accent:#00ff9d; --accent2:#7b2ff7; }
-* { margin:0; padding:0; box-sizing:border-box; }
-body { font-family:'Inter',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
-.wrap { max-width:1300px; margin:0 auto; padding:2rem 1rem; }
-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:3rem; }
-.logo { font-size:28px; font-weight:800; background:linear-gradient(135deg,var(--accent),var(--accent2)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; display:flex; align-items:center; gap:12px; }
-.cart-btn { background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); border:1px solid var(--border); padding:12px 24px; border-radius:16px; color:white; text-decoration:none; font-weight:600; display:flex; align-items:center; gap:8px; transition: all 0.3s; }
-.cart-btn:hover { transform:translateY(-3px); background: rgba(255,255,255,0.2); }
-.products { display:grid; grid-template-columns: repeat(auto-fill, minmax(300px,1fr)); gap:24px; }
-.card { background:var(--card); border-radius:20px; overflow:hidden; border:1px solid var(--border); backdrop-filter:blur(12px); transition: all 0.4s; position:relative; }
-.card:hover { transform:translateY(-16px) scale(1.02); box-shadow:0 20px 40px rgba(0,0,0,0.4); border-color:var(--accent); }
-.card img { width:100%; height:200px; object-fit:cover; }
-.card-body { padding:20px; }
-.card-body h3 { font-size:18px; margin:0 0 8px; font-weight:600; }
-.card-body p { color:var(--muted); font-size:14px; line-height:1.5; margin-bottom:16px; }
-.price { font-size:24px; font-weight:700; color:var(--accent); margin-bottom:16px; }
-.btn { width:100%; padding:14px; background:linear-gradient(135deg,var(--accent),var(--accent2)); color:black; border:none; border-radius:14px; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:10px; transition: all 0.3s; }
-.btn:hover { transform:scale(1.05); box-shadow:0 10px 20px rgba(0,255,157,0.3); }
-.floating-cart { position: fixed; bottom:30px; right:30px; background:linear-gradient(135deg,var(--accent),var(--accent2)); width:60px; height:60px; border-radius:50%; display:flex; align-items:center; justify-content:center; box-shadow:0 10px 30px rgba(0,0,0,0.5); cursor:pointer; z-index:1000; animation:pulse 2s infinite; }
-@keyframes pulse {0% {box-shadow:0 0 0 0 rgba(0,255,157,0.4);} 70% {box-shadow:0 0 0 15px rgba(0,255,157,0);} 100% {box-shadow:0 0 0 0 rgba(0,255,157,0);}}
-#requestBtn { margin-top:20px; width:auto; padding:12px 24px; }
+:root{--bg:#0a0a0a;--card:rgba(20,20,30,0.6);--border:rgba(255,255,255,0.1);--text:#f0f0f5;--muted:#a0a0c0;--accent:#00ff9d;--accent2:#7b2ff7}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+.wrap{max-width:1300px;margin:0 auto;padding:2rem 1rem}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:3rem;position:relative}
+.logo{display:flex;align-items:center;gap:12px;font-size:28px;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.cart-btn{background:rgba(255,255,255,0.1);backdrop-filter:blur(10px);border:1px solid var(--border);padding:12px 24px;border-radius:16px;color:white;text-decoration:none;font-weight:600;display:flex;align-items:center;gap:8px;transition:all 0.3s}
+.cart-btn:hover{transform:translateY(-3px);background:rgba(255,255,255,0.2)}
+.products{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:24px}
+.card{background:var(--card);border-radius:20px;overflow:hidden;border:1px solid var(--border);backdrop-filter:blur(12px);transition:all 0.4s cubic-bezier(0.175,0.885,0.32,1.275);position:relative}
+.card:hover{transform:translateY(-16px) scale(1.02);box-shadow:0 20px 40px rgba(0,0,0,0.4);border-color:var(--accent)}
+.card img{width:100%;height:200px;object-fit:cover}
+.card-body{padding:20px}
+.card-body h3{font-size:18px;margin:0 0 8px;font-weight:600}
+.card-body p{color:var(--muted);font-size:14px;line-height:1.5;margin-bottom:16px}
+.price{font-size:24px;font-weight:700;color:var(--accent);margin-bottom:16px}
+.btn{width:100%;padding:14px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:black;border:none;border-radius:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;transition:all 0.3s}
+.btn:hover{transform:scale(1.05);box-shadow:0 10px 20px rgba(0,255,157,0.3)}
+.floating-cart{position:fixed;bottom:30px;right:30px;background:linear-gradient(135deg,var(--accent),var(--accent2));width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 10px 30px rgba(0,0,0,0.5);cursor:pointer;z-index:1000;animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(0,255,157,0.4)}70%{box-shadow:0 0 0 15px rgba(0,255,157,0)}100%{box-shadow:0 0 0 0 rgba(0,255,157,0)}}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header>
-    <div class="logo"><i data-lucide="zap" style="width:36px;height:36px;"></i> VIXN</div>
-    <a href="/cart" class="cart-btn">
-      <i data-lucide="shopping-cart"></i> Cart (<span id="count">0</span>)
-    </a>
-  </header>
+<header>
+<div class="logo"><i data-lucide="zap" style="width:36px;height:36px;"></i> VIXN</div>
+<a href="/cart" class="cart-btn"><i data-lucide="shopping-cart"></i> Cart (<span id="count">0</span>)</a>
+</header>
 
-  <button id="requestBtn" class="btn"><i data-lucide="message-circle"></i> Request Item</button>
+<button id="requestBtn" class="btn" style="margin-bottom:24px;"><i data-lucide="message-circle"></i> Request Item</button>
 
-  <div id="list" class="products"></div>
+<div id="list" class="products"></div>
 </div>
 
 <a href="/cart" class="floating-cart" id="floatingCart">
-  <i data-lucide="shopping-bag" style="width:28px;height:28px;color:black;"></i>
-  <span style="position:absolute;top:-8px;right:-8px;background:#ff3b5c;color:white;width:24px;height:24px;border-radius:50%;font-size:12px;display:flex;align-items:center;justify-content:center;font-weight:bold;" id="floatCount">0</span>
+<i data-lucide="shopping-bag" style="width:28px;height:28px;color:black;"></i>
+<span style="position:absolute;top:-8px;right:-8px;background:#ff3b5c;color:white;width:24px;height:24px;border-radius:50%;font-size:12px;display:flex;align-items:center;justify-content:center;font-weight:bold;" id="floatCount">0</span>
 </a>
 
 <script>
 lucide.createIcons();
-function $(s){return document.querySelector(s)}
-function getCart(){return JSON.parse(localStorage.getItem('cart') || '[]')}
+
+function getCart(){return JSON.parse(localStorage.getItem('cart')||'[]');}
 function saveCart(c){
-  localStorage.setItem('cart', JSON.stringify(c));
+  localStorage.setItem('cart',JSON.stringify(c));
   const totalItems = c.reduce((s,i)=>s+i.qty,0);
-  $('#count').textContent = totalItems;
-  $('#floatCount').textContent = totalItems;
-  document.getElementById('floatingCart').style.display = totalItems > 0 ? 'flex' : 'none';
+  document.getElementById('count').textContent = totalItems;
+  document.getElementById('floatCount').textContent = totalItems;
+  document.getElementById('floatingCart').style.display = totalItems>0?'flex':'none';
 }
 function addToCart(p){
   let c = getCart();
@@ -223,54 +253,56 @@ function addToCart(p){
 }
 
 // Request Item button
-document.getElementById("requestBtn").onclick = () => {
+document.getElementById("requestBtn").addEventListener("click", ()=>{
     const name = prompt("Item Name:");
     if(!name) return alert("Item name is required!");
-    const desc = prompt("Item Description (optional):") || "";
-    const contact = prompt("Your Email or Discord (optional):") || "";
-    let requests = JSON.parse(localStorage.getItem("requests") || "[]");
-    requests.push({ name, desc, contact, date: new Date().toLocaleString() });
-    localStorage.setItem("requests", JSON.stringify(requests));
-    alert("Your request has been saved!");
-    console.log("Item Requests:", requests);
-}
+    const desc = prompt("Item Description (optional):")||"";
+    const contact = prompt("Your Email or Discord (optional):")||"";
+    fetch("/api/request_item",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({name, description:desc, contact})
+    }).then(r=>r.json()).then(res=>{
+        if(res.ok) alert("Your request has been submitted!");
+        else alert("Error: "+res.error);
+    });
+});
 
-// Load products
 fetch("/api/products")
-.then(r => r.json())
-.then(products => {
-  const list = $("#list");
-  if (products.length === 0) {
-    list.innerHTML = `<p style="text-align:center;color:var(--muted);grid-column:1/-1;font-size:18px;">No products available yet</p>`;
+.then(r=>r.json())
+.then(products=>{
+  const list=document.getElementById("list");
+  if(products.length===0){
+    list.innerHTML="<p style='text-align:center;color:#888;grid-column:1/-1;'>No products available</p>";
     return;
   }
-  products.forEach(p => {
-    const card = document.createElement("div");
-    card.className = "card";
-    card.innerHTML = `
+  products.forEach(p=>{
+    const card=document.createElement("div");
+    card.className="card";
+    card.innerHTML=`
       <img src="${p.image}" alt="${p.name}" loading="lazy">
       <div class="card-body">
         <h3>${p.name}</h3>
-        <p>${p.description || "No description"}</p>
+        <p>${p.description||"No description"}</p>
         <div class="price">$${parseFloat(p.price).toFixed(2)}</div>
-        <button class="btn" onclick='addToCart(${JSON.stringify(p)})'>
-          <i data-lucide="plus"></i> Add to Cart
-        </button>
+        <button class="btn">Add to Cart</button>
       </div>`;
+    const btn=card.querySelector("button");
+    btn.addEventListener("click",()=>addToCart(p));
     list.appendChild(card);
   });
   lucide.createIcons();
-})
-.catch(() => $("#list").innerHTML = "<p style='text-align:center;color:#888'>Error loading products</p>");
+});
 
 saveCart(getCart());
 </script>
 </body>
-</html>"""
+</html>
+"""
 
-# CART_HTML, LOGIN_HTML, ADMIN_HTML remain the same as your previous setup.
-# Just make sure to fix price display in CART_HTML as well like this:
-# <div class="item-price">$${parseFloat(item.price).toFixed(2)} × ${item.qty} = $${(item.price*item.qty).toFixed(2)}</div>
+# -------------------- CART_HTML, LOGIN_HTML, ADMIN_HTML --------------------
+# You can reuse your previous CART_HTML, LOGIN_HTML, ADMIN_HTML
+# (They don't require changes for Internal Server Error fix)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
