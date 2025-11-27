@@ -293,4 +293,5 @@ LOGIN_HTML = """<h1>Login Page</h1>"""
 ADMIN_HTML = """<h1>Admin Panel</h1>"""
 
 if __name__ == "__main__":
-    app.run(debug=True, port=8080)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
