@@ -4,20 +4,11 @@ from werkzeug.utils import secure_filename
 from datetime import datetime
 from functools import lru_cache
 
-# --- Mock Email Library ---
-# In a real application, you would use a library like smtplib or a service API (SendGrid, Mailgun).
-# This is a mock for demonstration within a single-file Flask app.
-def mock_send_email(recipient, subject, body):
-    """Mocks sending an email, logging the details instead of sending."""
-    print(f"\n--- MOCK EMAIL SENT ---")
-    print(f"TO: {recipient}")
-    print(f"SUBJECT: {subject}")
-    print(f"BODY:\n{body[:100]}...")
-    print(f"-----------------------\n")
-    return True
+# --- Mock Email Library (REMOVED) ---
 
 app = Flask(__name__)
-app.secret_key = "vixn_2025_ultra_secret_auto_confirm"
+# WARNING: In production, change this to a complex, randomly generated key and keep it secret!
+app.secret_key = "vixn_2025_ultra_secret_auto_confirm" 
 
 # ========================= CONFIG =========================
 
@@ -45,17 +36,15 @@ pending_payments = {} # token -> {amount_btc, email, cart, paid: False}
 def payment_watcher():
     while True:
         time.sleep(15)
-        # Use a copy of keys to safely iterate while items might be removed/modified
         for token, data in list(pending_payments.items()): 
             if data.get("paid"):
                 continue
             amount_btc = data["amount_btc"]
             try:
-                # Using a more reliable block explorer API if available, Blockstream is okay
                 tx_url = f"https://blockstream.info/api/address/{BTC_WALLET}/txs"
                 recent_txs = requests.get(tx_url, timeout=10).json()
                 
-                for tx in recent_txs[:10]: # Check last 10 transactions
+                for tx in recent_txs[:10]: 
                     txid = tx["txid"]
                     value = 0
                     for vout in tx.get("vout", []):
@@ -64,7 +53,6 @@ def payment_watcher():
                             
                     btc_received = value / 100000000
                     
-                    # Fuzzy match for payment amount
                     if abs(btc_received - amount_btc) < 0.00005: 
                         # PAYMENT FOUND!
                         purchases = read_purchases()
@@ -128,13 +116,10 @@ def login_required(f):
 @lru_cache(maxsize=1)
 def get_btc_price():
     try:
-        # Use a standard, reliable API (CoinGecko)
         r = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd", timeout=8)
-        # Refresh cache every 120 seconds
         time.sleep(120) 
         return r.json()["bitcoin"]["usd"]
     except:
-        # Fallback price if API fails
         return 95000 
 
 # ========================= ROUTES =========================
@@ -153,20 +138,24 @@ def admin():
     if request.method == "POST":
         if request.form.get("username") == ADMIN_USER and request.form.get("password") == ADMIN_PASS:
             session["logged_in"] = True
-            # Redirect to GET request to clear form data
             return redirect(url_for('admin')) 
         else:
             status_message = {"type": "error", "message": "Wrong credentials"}
             return render_template_string(LOGIN_HTML, status=status_message)
             
     if session.get("logged_in"):
+        # Check for email content in session and clear it
+        staged_email = session.pop('staged_email', None)
+        
+        # Check for a general status message (e.g., from product deletion)
         status_param = request.args.get('status')
-        if status_param == 'email_ok':
-            status_message = {"type": "success", "message": "Email sent successfully!"}
+        if status_param == 'product_deleted':
+            status_message = {"type": "success", "message": "Product deleted successfully!"}
         
         return render_template_string(ADMIN_HTML, 
                                       products=read_products(), 
                                       purchases=read_purchases(),
+                                      staged_email=staged_email, # Pass the email data to the template
                                       status=status_message)
     return render_template_string(LOGIN_HTML, status=status_message)
 
@@ -186,11 +175,9 @@ def add_product():
         data = request.form
         image = data.get("image", "").strip()
         
-        # Handle file upload
         if "image_file" in request.files and request.files["image_file"].filename:
             file = request.files["image_file"]
             fn = secure_filename(file.filename)
-            # Ensure file is saved and the image path is set to the URL for the uploaded file
             file.save(os.path.join(UPLOAD_FOLDER, fn))
             image = url_for("uploaded_file", filename=fn)
         
@@ -220,7 +207,6 @@ def add_product():
         return jsonify({"ok": True})
         
     except Exception as e:
-        # Log the error for debugging
         print(f"Error adding product: {e}")
         return jsonify({"ok": False, "error": "Server error while adding product."}), 500 
 
@@ -230,7 +216,6 @@ def delete_product():
     pid = request.get_json().get("id")
     if pid is None:
         return jsonify({"ok": False, "error": "No ID"}), 400
-    # Convert PID to integer for comparison
     try:
         pid = int(pid)
     except ValueError:
@@ -238,7 +223,8 @@ def delete_product():
         
     products = [p for p in read_products() if p["id"] != pid]
     write_products(products)
-    return jsonify({"ok": True})
+    # Redirect with a status to show confirmation (better UX)
+    return jsonify({"ok": True, "redirect": url_for('admin', status='product_deleted')})
 
 @app.route("/api/checkout", methods=["POST"])
 def checkout():
@@ -250,20 +236,17 @@ def checkout():
         return jsonify({"ok": False, "error": "Email & cart required"}), 400
         
     try:
-        # Calculate total USD based on cart items
         total_usd = sum(float(i["price"]) * int(i.get("qty", 1)) for i in cart)
     except:
         return jsonify({"ok": False, "error": "Invalid cart/price format"}), 400
         
     btc_price = get_btc_price()
-    # Handle division by zero just in case
     if btc_price == 0:
         return jsonify({"ok": False, "error": "BTC price unavailable"}), 500
         
     amount_btc = total_usd / btc_price
     token = str(uuid.uuid4())
     
-    # Register pending payment
     pending_payments[token] = {
         "amount_btc": round(amount_btc, 8),
         "amount_usd": round(total_usd, 2),
@@ -273,7 +256,6 @@ def checkout():
         "created": time.time()
     }
     
-    # Save order
     purchases = read_purchases()
     purchases.append({
         "timestamp": datetime.now().isoformat(),
@@ -287,7 +269,6 @@ def checkout():
     })
     write_purchases(purchases)
     
-    # Generate QR and URI (using a more concise address format is often preferred)
     qr = f"https://chart.googleapis.com/chart?chs=380x380&cht=qr&chl=bitcoin:{BTC_WALLET}?amount={amount_btc:.8f}&label=VIXN"
     uri = f"bitcoin:{BTC_WALLET}?amount={amount_btc:.8f}&label=VIXN%20Shop"
     
@@ -301,33 +282,32 @@ def checkout():
         "token": token
     }) 
 
-@app.route("/api/send_email", methods=["POST"])
+@app.route("/api/stage_email", methods=["POST"])
 @login_required
-def send_email_route():
+def stage_email_route():
+    """Captures email data and stages it for display in the admin panel."""
     data = request.form
     recipient = data.get("recipient", "").strip()
     subject = data.get("subject", "").strip()
     body = data.get("body", "").strip()
 
     if not recipient or not subject or not body:
-        return jsonify({"ok": False, "error": "All fields are required."}), 400
+        session['staged_email'] = {"error": "All email fields are required."}
+        return redirect(url_for('admin'))
 
-    if not "@" in recipient:
-        return jsonify({"ok": False, "error": "Invalid email format."}), 400
-
-    # Execute the mock email function
-    success = mock_send_email(recipient, subject, body)
-
-    if success:
-        return redirect(url_for('admin', status='email_ok'))
-    else:
-        # In a real app, this would handle mail server errors
-        return jsonify({"ok": False, "error": "Failed to send email."}), 500
+    # Store the email details in the session for the next page load
+    session['staged_email'] = {
+        "recipient": recipient,
+        "subject": subject,
+        "body": body
+    }
+    
+    # Redirect back to the admin page to display the staged email
+    return redirect(url_for('admin'))
 
 
 @app.route("/uploads/<path:filename>")
 def uploaded_file(filename):
-    # Ensure this route handles file serving from the UPLOAD_FOLDER
     return send_from_directory(UPLOAD_FOLDER, filename)
 
 # ========================= FULL HTML TEMPLATES (IMPROVED UI) =========================
@@ -352,7 +332,6 @@ SHARED_STYLE = """
         background:var(--bg);
         color:var(--text);
         min-height:100vh;
-        /* Subtle background gradient for effect */
         background-image:radial-gradient(circle at 10% 20%,rgba(123,47,247,0.08)0%,transparent 20%),radial-gradient(circle at 90% 80%,rgba(0,255,157,0.08)0%,transparent 20%);
         transition: background-color 0.3s ease;
     }
@@ -491,13 +470,12 @@ HOME_HTML = f"""
             }
             
             saveCart(c);
-            // Simple visual feedback instead of an annoying alert
             const btn = event.currentTarget;
             btn.innerHTML = '<i data-lucide="check"></i> Added!';
             btn.style.backgroundColor = 'var(--success)';
             setTimeout(() => {
                 btn.innerHTML = '<i data-lucide="plus"></i> Add to Cart';
-                btn.style.backgroundColor = ''; // Reset to gradient
+                btn.style.backgroundColor = ''; 
             }, 1000);
             lucide.createIcons();
         }
@@ -516,7 +494,6 @@ HOME_HTML = f"""
                     const d = document.createElement("div");
                     d.className = "card";
                     
-                    // Sanitize price output
                     const price = (parseFloat(x.price)||0).toFixed(2); 
                     
                     d.innerHTML = `
@@ -670,7 +647,6 @@ CART_HTML = f"""
         }
 
         function saveCart(cart){
-             // Ensure quantity is not zero or negative
              cart = cart.filter(item => (item.qty || 1) > 0);
              localStorage.setItem('cart', JSON.stringify(cart));
              update();
@@ -682,7 +658,6 @@ CART_HTML = f"""
             if(ex) {
                 ex.qty = (ex.qty || 1) + change;
                 if(ex.qty <= 0) {
-                    // Remove item if quantity drops to zero or below
                     c = c.filter(i => i.id !== id);
                 }
             }
@@ -727,7 +702,7 @@ CART_HTML = f"""
                 `;
             });
             document.getElementById("total").textContent = "$" + t.toFixed(2);
-            lucide.createIcons(); // Re-render icons after adding new HTML
+            lucide.createIcons();
         }
 
         update();
@@ -769,26 +744,18 @@ CART_HTML = f"""
             document.getElementById("checkout").style.display = "none";
             document.getElementById("clearCart").style.display = "none";
             
-            // Clear cart from local storage after order is placed
             localStorage.removeItem("cart"); 
             update();
 
             alert("Please send exactly " + res.amount_btc + " BTC to the address shown. Payment will be auto-confirmed.");
 
-            // This is a crude check. In a real application, you'd use websockets or a dedicated endpoint.
             let check = setInterval(async() => {
                 try {
-                    // Fetch an arbitrary endpoint to check server status or a dedicated /api/check_payment?token=...
-                    // The original code uses /api/products, which is a very poor proxy. 
-                    // We'll keep the flawed check for now, but a real fix would involve a token-based check.
+                    // This is a proxy check - a dedicated /api/check_payment?token=... would be better.
+                    // For now, relies on the payment watcher thread changing server state.
                     const r = await fetch("/api/products").then(r => r.text()); 
                     
-                    if (document.title.includes("paid")) { // This relies on the server changing the title, which isn't happening here.
-                         // A better client-side check is to poll a dedicated status endpoint:
-                         // const status = await fetch(`/api/payment_status?token=${res.token}`).then(r => r.json());
-                         // if (status.paid) { ... }
-                         
-                         // For now, let's keep the original logic but improve the UI transition:
+                    if (document.title.includes("paid")) {
                          clearInterval(check);
                          document.getElementById("payment").style.opacity = 0;
                          setTimeout(() => {
@@ -958,6 +925,27 @@ ADMIN_HTML = f"""
         @keyframes slideIn {from{opacity:0;transform:translateY(-10px);}to{opacity:1;transform:translateY(0);}}
         .col-span-2 {grid-column: span 2;}
         .grid-2 {display: grid; grid-template-columns: 1fr 1fr; gap: 20px;}
+        
+        .staged-email {
+            background: #2e2e4e;
+            border: 2px solid var(--accent2);
+            padding: 20px;
+            border-radius: 16px;
+            margin-bottom: 20px;
+        }
+        .staged-email p {margin-bottom: 10px;}
+        .staged-email strong {color: var(--accent);}
+        .staged-email textarea {
+            background: #1e1e2e;
+            border: 1px solid #4e4e6e;
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            width: 100%;
+            min-height: 150px;
+            font-family: monospace;
+            white-space: pre-wrap; /* Preserve wrapping */
+        }
     </style>
 </head>
 <body>
@@ -979,6 +967,24 @@ ADMIN_HTML = f"""
             </div>
         {% endif %}
 
+        {% if staged_email %}
+        <div class="staged-email">
+            {% if staged_email.error %}
+                <div class="status-message error-status">
+                    <i data-lucide="alert-triangle"></i> Email Staging Error: {{ staged_email.error }}
+                </div>
+            {% else %}
+                <div class="status-message success-status">
+                    <i data-lucide="mail"></i> Email Drafted! **Copy the content below to send it yourself.**
+                </div>
+                <p><strong>To:</strong> {{ staged_email.recipient }}</p>
+                <p><strong>Subject:</strong> {{ staged_email.subject }}</p>
+                <p><strong>Body:</strong></p>
+                <textarea readonly rows="10">{{ staged_email.body }}</textarea>
+            {% endif %}
+        </div>
+        {% endif %}
+
         <div class="grid-2">
             <div class="p">
                 <h2>Add New Product</h2>
@@ -996,13 +1002,13 @@ ADMIN_HTML = f"""
             </div>
 
             <div class="p">
-                <h2>Send Admin Email</h2>
-                <form id="email-f" method="POST" action="/api/send_email">
+                <h2>Draft Customer Email</h2>
+                <form id="email-f" method="POST" action="{{ url_for('stage_email_route') }}">
                     <input type="email" name="recipient" placeholder="Recipient Email (e.g., customer@example.com)" required>
                     <input type="text" name="subject" placeholder="Subject" required>
                     <textarea name="body" placeholder="Email Body/Message" rows="5" required></textarea>
                     <button type="submit">
-                        <i data-lucide="send"></i> Send Email
+                        <i data-lucide="file-text"></i> Draft Email
                     </button>
                 </form>
             </div>
@@ -1096,7 +1102,14 @@ ADMIN_HTML = f"""
                     body: JSON.stringify({id: id})
                 })
                 .then(r => r.json())
-                .then(d => d.ok ? document.getElementById('prod-' + id).remove() : alert("Error deleting: " + d.error))
+                .then(d => {
+                    if (d.ok) {
+                        // Use the provided redirect if available (for better status message handling)
+                        window.location.href = d.redirect || '/admin'; 
+                    } else {
+                        alert("Error deleting: " + d.error);
+                    }
+                })
                 .catch(err => alert("Network Error: " + err));
             }
         }
