@@ -1,16 +1,19 @@
-# main.py — VIXN 2025 Ultimate Edition — Shop + Admin + PayPal + BTC
+# main.py — VIXN 2025 ULTIMATE EDITION — FULLY AUTOMATIC BTC PAYMENTS (AUTO-CONFIRM)
+
 from flask import Flask, jsonify, request, send_from_directory, render_template_string, redirect, session, url_for
-import json, os
+import json, os, requests, uuid, threading, time
 from werkzeug.utils import secure_filename
 from datetime import datetime
-import requests
+from functools import lru_cache
 
 app = Flask(__name__)
-app.secret_key = "vixn_2025_ultra_secret"
+app.secret_key = "vixn_2025_ultra_secret_auto_confirm"
 
-PAYPAL_USERNAME = "ContentDeleted939"
+# ========================= CONFIG =========================
 ADMIN_USER = "Admin"
 ADMIN_PASS = "admin12"
+
+# YOUR BTC WALLET (ALL PAYMENTS GO HERE)
 BTC_WALLET = "bc1qagcaenvmug20thznjtuqselmnjkp4q0yarewqe"
 
 PRODUCTS_FILE = 'products.json'
@@ -18,17 +21,66 @@ PURCHASES_FILE = 'purchases.json'
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# Ensure data files exist
+# Create files
 for f in [PRODUCTS_FILE, PURCHASES_FILE]:
     if not os.path.exists(f):
         with open(f, 'w', encoding='utf-8') as fp:
             json.dump([], fp)
 
+# In-memory pending payments tracker
+pending_payments = {}  # token -> {amount_btc, email, cart, paid: False}
+
+# Background checker thread
+def payment_watcher():
+    while True:
+        time.sleep(15)  # Check every 15 seconds
+        for token, data in list(pending_payments.items()):
+            if data.get("paid"): 
+                continue
+            amount_btc = data["amount_btc"]
+            try:
+                url = f"https://blockstream.info/api/address/{BTC_WALLET}"
+                resp = requests.get(url, timeout=10).json()
+                txs = resp.get("chain_stats", {}).get("funded_txo_sum", 0) - resp.get("chain_stats", {}).get("spent_txo_sum", 0)
+                total_received_sats = resp.get("chain_stats", {}).get("funded_txo_sum", 0)
+                
+                # Get recent transactions
+                tx_url = f"https://blockstream.info/api/address/{BTC_WALLET}/txs"
+                recent_txs = requests.get(tx_url, timeout=10).json()
+                
+                for tx in recent_txs[:10]:  # Check last 10 txs
+                    txid = tx["txid"]
+                    value = 0
+                    for vout in tx.get("vout", []):
+                        if vout.get("scriptpubkey_address") == BTC_WALLET:
+                            value += vout["value"]
+                    btc_received = value / 100000000
+                    
+                    if abs(btc_received - amount_btc) < 0.00005:  # ~$3 tolerance
+                        # PAYMENT FOUND!
+                        purchases = read_purchases()
+                        for p in purchases:
+                            if p.get("token") == token and p.get("status") == "pending":
+                                p["status"] = "paid"
+                                p["paid_at"] = datetime.now().isoformat()
+                                p["txid"] = txid
+                                break
+                        write_purchases(purchases)
+                        pending_payments[token]["paid"] = True
+                        print(f"PAYMENT CONFIRMED! {data['email']} paid {amount_btc:.8f} BTC | TX: {txid}")
+                        break
+            except:
+                continue
+
+# Start background watcher
+threading.Thread(target=payment_watcher, daemon=True).start()
+
+# ========================= DATA HELPERS =========================
 def read_products():
-    try:
+    try: 
         with open(PRODUCTS_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
-    except:
+    except: 
         return []
 
 def write_products(data):
@@ -36,10 +88,10 @@ def write_products(data):
         json.dump(data, f, indent=2)
 
 def read_purchases():
-    try:
+    try: 
         with open(PURCHASES_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
-    except:
+    except: 
         return []
 
 def write_purchases(data):
@@ -47,11 +99,9 @@ def write_purchases(data):
         json.dump(data, f, indent=2)
 
 def next_id():
-    prods = read_products()
-    if not prods:
-        return 1
-    return max([p.get("id", 0) for p in prods]) + 1
+    return max([p.get("id", 0) for p in read_products()], default=0) + 1
 
+# ========================= AUTH =========================
 def login_required(f):
     from functools import wraps
     @wraps(f)
@@ -61,6 +111,16 @@ def login_required(f):
         return f(*args, **kwargs)
     return wrapper
 
+# ========================= BTC PRICE =========================
+@lru_cache(maxsize=1)
+def get_btc_price():
+    try:
+        r = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd", timeout=8)
+        return r.json()["bitcoin"]["usd"]
+    except:
+        return 95000
+
+# ========================= ROUTES =========================
 @app.route("/")
 def home():
     return render_template_string(HOME_HTML)
@@ -100,16 +160,19 @@ def add_product():
             fn = secure_filename(file.filename)
             file.save(os.path.join(UPLOAD_FOLDER, fn))
             image = url_for("uploaded_file", filename=fn)
+
         name = data.get("name", "").strip()
         price = data.get("price", "").strip()
         desc = data.get("description", "")
+
         if not name or not price:
             return jsonify({"ok": False, "error": "Name and price required"}), 400
+
         try:
-            price_val = float(price)
-            price = f"{price_val:.2f}"
+            price = f"{float(price):.2f}"
         except:
-            return jsonify({"ok": False, "error": "Price must be numeric"}), 400
+            return jsonify({"ok": False, "error": "Invalid price"}), 400
+
         new_prod = {
             "id": next_id(),
             "name": name,
@@ -127,249 +190,84 @@ def add_product():
 @app.route("/api/delete_product", methods=["POST"])
 @login_required
 def delete_product():
-    try:
-        pid = request.get_json().get("id")
-        if pid is None:
-            return jsonify({"ok": False, "error": "No ID"}), 400
-        products = [p for p in read_products() if p["id"] != pid]
-        write_products(products)
-        return jsonify({"ok": True})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+    pid = request.get_json().get("id")
+    if pid is None:
+        return jsonify({"ok": False, "error": "No ID"}), 400
+    products = [p for p in read_products() if p["id"] != pid]
+    write_products(products)
+    return jsonify({"ok": True})
 
 @app.route("/api/checkout", methods=["POST"])
 def checkout():
     data = request.get_json() or {}
     email = data.get("email", "").strip()
     cart = data.get("cart", [])
-    if not email or not cart:
-        return jsonify({"ok": False, "error": "Email & cart required"}), 400
-    try:
-        total = sum(float(i["price"]) * int(i.get("qty", 1)) for i in cart)
-    except Exception:
-        return jsonify({"ok": False, "error": "Invalid cart prices/quantity"}), 400
-    purchases = read_purchases()
-    purchases.append({"timestamp": datetime.now().isoformat(), "email": email, "total": round(total, 2), "items": cart})
-    write_purchases(purchases)
-    url = f"https://www.paypal.me/{PAYPAL_USERNAME}/{total:.2f}"
-    return jsonify({"ok": True, "paypal_url": url})
 
-@app.route("/api/crypto_checkout", methods=["POST"])
-def crypto_checkout():
-    data = request.get_json() or {}
-    email = data.get("email", "").strip()
-    cart = data.get("cart", [])
     if not email or not cart:
         return jsonify({"ok": False, "error": "Email & cart required"}), 400
+
     try:
         total_usd = sum(float(i["price"]) * int(i.get("qty", 1)) for i in cart)
     except:
-        return jsonify({"ok": False, "error": "Invalid cart prices/quantity"}), 400
-    # get BTC price in USD
-    try:
-        r = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd")
-        btc_price = r.json()["bitcoin"]["usd"]
-        btc_amount = round(total_usd / btc_price, 8)
-    except:
-        return jsonify({"ok": False, "error": "Failed to fetch BTC price"}), 500
+        return jsonify({"ok": False, "error": "Invalid cart"}), 400
+
+    btc_price = get_btc_price()
+    amount_btc = total_usd / btc_price
+    token = str(uuid.uuid4())
+
+    # Register pending payment
+    pending_payments[token] = {
+        "amount_btc": round(amount_btc, 8),
+        "amount_usd": round(total_usd, 2),
+        "email": email,
+        "cart": cart,
+        "paid": False,
+        "created": time.time()
+    }
+
+    # Save order
     purchases = read_purchases()
-    purchases.append({"timestamp": datetime.now().isoformat(), "email": email, "total": round(total_usd,2), "items": cart, "crypto":"BTC"})
+    purchases.append({
+        "timestamp": datetime.now().isoformat(),
+        "email": email,
+        "total_usd": round(total_usd, 2),
+        "total_btc": round(amount_btc, 8),
+        "status": "pending",
+        "payment_address": BTC_WALLET,
+        "token": token,
+        "items": cart
+    })
     write_purchases(purchases)
-    return jsonify({"ok": True, "btc_amount": btc_amount, "wallet_address": BTC_WALLET})
+
+    qr = f"https://chart.googleapis.com/chart?chs=380x380&cht=qr&chl=bitcoin:{BTC_WALLET}?amount={amount_btc:.8f}&label=VIXN"
+    uri = f"bitcoin:{BTC_WALLET}?amount={amount_btc:.8f}&label=VIXN%20Shop"
+
+    return jsonify({
+        "ok": True,
+        "payment_address": BTC_WALLET,
+        "amount_btc": round(amount_btc, 8),
+        "amount_usd": round(total_usd, 2),
+        "qr": qr,
+        "wallet_uri": uri,
+        "token": token
+    })
 
 @app.route("/uploads/<path:filename>")
 def uploaded_file(filename):
     return send_from_directory(UPLOAD_FOLDER, filename)
 
-# ============================ HTML Templates ============================
+# ========================= FULL HTML TEMPLATES =========================
 
-HOME_HTML = """<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>VIXN • Premium Digital Shop</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
-<style>
-:root{--bg:#0a0a0a;--card:rgba(20,20,30,0.6);--border:rgba(255,255,255,0.1);--text:#f0f0f5;--muted:#a0a0c0;--accent:#00ff9d;--accent2:#7b2ff7}
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;background-image:radial-gradient(circle at 10% 20%, rgba(123, 47, 247, 0.15) 0%, transparent 20%),radial-gradient(circle at 90% 80%, rgba(0, 255, 157, 0.15) 0%, transparent 20%)}
-.wrap{max-width:1300px;margin:0 auto;padding:2rem 1rem}
-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:3rem;position:relative}
-.logo{display:flex;align-items:center;gap:12px;font-size:28px;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.cart-btn{background:rgba(255,255,255,0.1);backdrop-filter:blur(10px);border:1px solid var(--border);padding:12px 24px;border-radius:16px;color:white;text-decoration:none;font-weight:600;display:flex;align-items:center;gap:8px;transition:all 0.3s}
-.cart-btn:hover{transform:translateY(-3px);background:rgba(255,255,255,0.2)}
-.products{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:24px}
-.card{background:var(--card);border-radius:20px;overflow:hidden;border:1px solid var(--border);backdrop-filter:blur(12px);transition:all 0.4s cubic-bezier(0.175,0.885,0.32,1.275);position:relative}
-.card:hover{transform:translateY(-16px) scale(1.02);box-shadow:0 20px 40px rgba(0,0,0,0.4);border-color:var(--accent)}
-.card img{width:100%;height:200px;object-fit:cover}
-.card-body{padding:20px}
-.card-body h3{font-size:18px;margin:0 0 8px;font-weight:600}
-.card-body p{color:var(--muted);font-size:14px;line-height:1.5;margin-bottom:16px}
-.price{font-size:24px;font-weight:700;color:var(--accent);margin-bottom:16px}
-.btn{width:100%;padding:14px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:black;border:none;border-radius:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;transition:all 0.3s}
-.btn:hover{transform:scale(1.05);box-shadow:0 10px 20px rgba(0,255,157,0.3)}
-.floating-cart{position:fixed;bottom:30px;right:30px;background:linear-gradient(135deg,var(--accent),var(--accent2));width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 10px 30px rgba(0,0,0,0.5);cursor:pointer;z-index:1000;animation:pulse 2s infinite}
-@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(0,255,157,0.4)}70%{box-shadow:0 0 0 15px rgba(0,255,157,0)}100%{box-shadow:0 0 0 0 rgba(0,255,157,0)}}
-</style>
-</head>
-<body>
-<div class="wrap">
-<header>
-<div class="logo"><i data-lucide="zap" style="width:36px;height:36px;"></i> VIXN</div>
-<a href="/cart" class="cart-btn"><i data-lucide="shopping-cart"></i> Cart (<span id="count">0</span>)</a>
-</header>
-<div id="list" class="products"></div>
-</div>
-<a href="/cart" class="floating-cart" id="floatingCart" style="display:none;"><i data-lucide="shopping-bag" style="width:28px;height:28px;color:black"></i><span style="position:absolute;top:-8px;right:-8px;background:#ff3b5c;color:white;width:24px;height:24px;border-radius:50%;font-size:12px;display:flex;align-items:center;justify-content:center;font-weight:bold" id="floatCount">0</span></a>
-<script>
-lucide.createIcons();
-function $(s){return document.querySelector(s)}
-function getCart(){return JSON.parse(localStorage.getItem('cart')||'[]')}
-function saveCart(c){localStorage.setItem('cart',JSON.stringify(c));const totalItems=c.reduce((s,i)=>s+(parseInt(i.qty)||0),0);$('#count').textContent=totalItems;$('#floatCount').textContent=totalItems;document.getElementById('floatingCart').style.display=totalItems>0?'flex':'none'}
-function addToCart(p){let c=getCart();let ex=c.find(i=>i.id===p.id);if(ex) ex.qty=(parseInt(ex.qty)||0)+1; else c.push({id:p.id,name:p.name,price:p.price,image:p.image,qty:1});saveCart(c);alert("Added to cart!")}
-fetch("/api/products").then(r=>r.json()).then(products=>{const list=$("#list");if(!products||products.length===0){list.innerHTML='<p style="text-align:center;color:var(--muted);grid-column:1/-1;font-size:18px;">No products available yet</p>';return;}products.forEach(p=>{const card=document.createElement("div");card.className="card";const img=document.createElement("img");img.src=p.image||"https://via.placeholder.com/400x300/1e293b/e6eef8?text=No+Image";img.alt=p.name||"Product Image";const body=document.createElement("div");body.className="card-body";const h3=document.createElement("h3");h3.textContent=p.name;const desc=document.createElement("p");desc.textContent=p.description||"No description";const price=document.createElement("div");price.className="price";let priceNum=parseFloat(p.price||0);price.textContent="$"+priceNum.toFixed(2);const btn=document.createElement("button");btn.className="btn";btn.innerHTML='<i data-lucide="plus"></i> Add to Cart';btn.addEventListener('click',()=>addToCart(p));body.appendChild(h3);body.appendChild(desc);body.appendChild(price);body.appendChild(btn);card.appendChild(img);card.appendChild(body);list.appendChild(card)});lucide.createIcons()}).catch(()=>$("#list").innerHTML="<p style='text-align:center;color:#888'>Error loading products</p>");
-saveCart(getCart());
-</script>
-</body>
-</html>
+HOME_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>VIXN • Premium Digital Shop</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"><script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script><style>:root{--bg:#0a0a0a;--card:rgba(20,20,30,0.6);--border:rgba(255,255,255,0.1);--text:#f0f0f5;--muted:#a0a0c0;--accent:#00ff9d;--accent2:#7b2ff7}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;background-image:radial-gradient(circle at 10% 20%,rgba(123,47,247,0.15)0%,transparent 20%),radial-gradient(circle at 90% 80%,rgba(0,255,157,0.15)0%,transparent 20%)}.wrap{max-width:1300px;margin:0 auto;padding:2rem 1rem}header{display:flex;justify-content:space-between;align-items:center;margin-bottom:3rem}.logo{display:flex;align-items:center;gap:12px;font-size:28px;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}.cart-btn{background:rgba(255,255,255,0.1);backdrop-filter:blur(10px);border:1px solid var(--border);padding:12px 24px;border-radius:16px;color:white;text-decoration:none;font-weight:600;display:flex;align-items:center;gap:8px;transition:all .3s}.cart-btn:hover{transform:translateY(-3px);background:rgba(255,255,255,0.2)}.products{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:24px}.card{background:var(--card);border-radius:20px;overflow:hidden;border:1px solid var(--border);backdrop-filter:blur(12px);transition:all .4s cubic-bezier(.175,.885,.32,1.275)}.card:hover{transform:translateY(-16px) scale(1.02);box-shadow:0 20px 40px rgba(0,0,0,0.4);border-color:var(--accent)}.card img{width:100%;height:200px;object-fit:cover}.card-body{padding:20px}.card-body h3{font-size:18px;margin:0 0 8px;font-weight:600}.card-body p{color:var(--muted);font-size:14px;line-height:1.5;margin-bottom:16px}.price{font-size:24px;font-weight:700;color:var(--accent);margin-bottom:16px}.btn{width:100%;padding:14px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:black;border:none;border-radius:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;transition:all .3s}.btn:hover{transform:scale(1.05);box-shadow:0 10px 20px rgba(0,255,157,0.3)}.floating-cart{position:fixed;bottom:30px;right:30px;background:linear-gradient(135deg,var(--accent),var(--accent2));width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 10px 30px rgba(0,0,0,0.5);cursor:pointer;z-index:1000;animation:pulse 2s infinite}@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(0,255,157,0.4)}70%{box-shadow:0 0 0 15px rgba(0,255,157,0)}100%{box-shadow:0 0 0 0 rgba(0,255,157,0)}}</style></head><body><div class="wrap"><header><div class="logo"><i data-lucide="zap" style="width:36px;height:36px;"></i> VIXN</div><a href="/cart" class="cart-btn"><i data-lucide="shopping-cart"></i> Cart (<span id="count">0</span>)</a></header><div id="list" class="products"></div></div><a href="/cart" class="floating-cart" id="floatingCart" style="display:none;"><i data-lucide="shopping-bag" style="width:28px;height:28px;color:black;"></i><span style="position:absolute;top:-8px;right:-8px;background:#ff3b5c;color:white;width:24px;height:24px;border-radius:50%;font-size:12px;display:flex;align-items:center;justify-content:center;font-weight:bold;" id="floatCount">0</span></a><script>lucide.createIcons();function \( (s){return document.querySelector(s)}function getCart(){return JSON.parse(localStorage.getItem('cart')||'[]')}function saveCart(c){localStorage.setItem('cart',JSON.stringify(c));const n=c.reduce((s,i)=>s+(i.qty||0),0); \)('#count').textContent=n;\( ('#floatCount').textContent=n; \)('#floatingCart').style.display=n>0?'flex':'none'}function addToCart(p){let c=getCart();let ex=c.find(i=>i.id===p.id);if(ex)ex.qty=(ex.qty||0)+1;else c.push({...p,qty:1});saveCart(c);alert("Added!")}fetch("/api/products").then(r=>r.json()).then(p=>{const l=\( ("#list");if(!p.length){l.innerHTML=`<p style="text-align:center;color:var(--muted);grid-column:1/-1;font-size:18px;">No products yet</p>`;return}p.forEach(x=>{const d=document.createElement("div");d.className="card";d.innerHTML=`<img src=" \){x.image}" alt="\( {x.name}"><div class="card-body"><h3> \){x.name}</h3><p>\( {x.description||"No description"}</p><div class="price">\[ {(parseFloat(x.price)||0).toFixed(2)}</div><button class="btn" onclick='addToCart( \){JSON.stringify(x)})'><i data-lucide="plus"></i> Add to Cart</button></div>`;l.appendChild(d)});lucide.createIcons()});saveCart(getCart());</script></body></html>"""
 
-CART_HTML = """<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>VIXN • Cart</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
-<style>
-body{font-family:'Inter',sans-serif;background:#0a0a0a;color:#f0f0f5;padding:2rem}
-a{color:#00ff9d;text-decoration:none}
-.cart-table{width:100%;border-collapse:collapse;margin-bottom:2rem}
-.cart-table th, .cart-table td{border-bottom:1px solid rgba(255,255,255,0.1);padding:12px;text-align:left}
-.cart-table th{color:#00ff9d}
-.btn{padding:12px 24px;background:linear-gradient(135deg,#00ff9d,#7b2ff7);border:none;border-radius:12px;color:black;font-weight:700;cursor:pointer;display:inline-block;margin-top:1rem}
-.btn:hover{transform:scale(1.05);box-shadow:0 8px 20px rgba(0,255,157,0.3)}
-.total{font-size:22px;font-weight:700;margin-top:1rem;color:#00ff9d}
-</style>
-</head>
-<body>
-<h1>Your Cart</h1>
-<table class="cart-table" id="cartTable">
-<tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th><th></th></tr>
-</table>
-<div class="total" id="totalAmount"></div>
-<button class="btn" id="paypalBtn">Checkout with PayPal</button>
-<button class="btn" id="cryptoBtn">Checkout with BTC</button>
-<script>
-lucide.createIcons();
-function getCart(){return JSON.parse(localStorage.getItem('cart')||'[]')}
-function saveCart(c){localStorage.setItem('cart',JSON.stringify(c))}
-function renderCart(){const cart=getCart();const table=document.getElementById("cartTable");table.innerHTML='<tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th><th></th></tr>';let total=0;cart.forEach((p,i)=>{let tr=document.createElement("tr");let price=parseFloat(p.price)||0;let qty=parseInt(p.qty)||1;let line=price*qty;total+=line;tr.innerHTML=`<td>${p.name}</td><td><input type="number" min="1" value="${qty}" data-index="${i}" class="qtyInput" style="width:60px"></td><td>$${price.toFixed(2)}</td><td>$${line.toFixed(2)}</td><td><button data-index="${i}" class="removeBtn">Remove</button></td>`;table.appendChild(tr)});document.getElementById("totalAmount").textContent="Total: $"+total.toFixed(2)}
-document.addEventListener("input",function(e){if(e.target.classList.contains("qtyInput")){let c=getCart();c[e.target.dataset.index].qty=parseInt(e.target.value)||1;saveCart(c);renderCart()}})
-document.addEventListener("click",function(e){if(e.target.classList.contains("removeBtn")){let c=getCart();c.splice(e.target.dataset.index,1);saveCart(c);renderCart()}})
-renderCart();
-document.getElementById("paypalBtn").addEventListener("click",()=>{let email=prompt("Enter your email");if(!email)return;fetch("/api/checkout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:email,cart:getCart()})}).then(r=>r.json()).then(d=>{if(d.ok)window.location.href=d.paypal_url;else alert(d.error)})})
-document.getElementById("cryptoBtn").addEventListener("click",()=>{let email=prompt("Enter your email");if(!email)return;fetch("/api/crypto_checkout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:email,cart:getCart()})}).then(r=>r.json()).then(d=>{if(d.ok)alert("Send "+d.btc_amount+" BTC to wallet:\\n"+d.wallet_address);else alert(d.error)})})
-</script>
-</body>
-</html>
-"""
+CART_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>VIXN • Cart</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"><script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script><style>:root{--bg:#0a0a0a;--card:rgba(20,20,30,0.6);--border:rgba(255,255,255,0.1);--text:#f0f0f5;--muted:#a0a0c0;--accent:#00ff9d;--accent2:#7b2ff7}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:2rem}.wrap{max-width:800px;margin:auto}header{display:flex;justify-content:space-between;align-items:center;margin-bottom:3rem}.logo{font-size:28px;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;display:flex;align-items:center;gap:12px}.back{color:var(--muted);text-decoration:none;font-weight:600;display:flex;align-items:center;gap:8px}.item{display:flex;gap:20px;padding:20px;background:var(--card);border:1px solid var(--border);border-radius:16px;margin-bottom:16px}.item img{width:100px;height:100px;object-fit:cover;border-radius:12px}.item-info{flex:1}.item-name{font-size:18px;font-weight:600}.item-price{color:var(--muted);margin:8px 0}.total{font-size:32px;font-weight:700;color:var(--accent);text-align:center;margin:2rem 0}.btn-full{width:100%;padding:18px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:black;border:none;border-radius:16px;font-size:18px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:12px;margin:10px 0;transition:.3s}.btn-full:hover{transform:scale(1.02)}.clear-btn{background:#ef4444!important;color:white!important}#payment{display:none;flex-direction:column;align-items:center;background:var(--card);padding:30px;border-radius:20px;border:2px solid var(--accent);margin:20px 0;gap:16px}#payment img{border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,0.5)}.address{font-family:monospace;background:#1e1e2e;padding:14px;border-radius:10px;font-size:15px;word-break:break-all;text-align:center}.success{background:#10b981;color:white;padding:20px;border-radius:16px;text-align:center;font-size:18px}</style></head><body><div class="wrap"><header><div class="logo"><i data-lucide="zap"></i> VIXN</div><a href="/" class="back"><i data-lucide="arrow-left"></i> Continue Shopping</a></header><h1 style="text-align:center;margin-bottom:2rem">Your Cart</h1><div id="items"></div><div class="total">Total: <span id="total">$0.00</span></div><button id="checkout" class="btn-full"><i data-lucide="bitcoin"></i> Pay with Bitcoin</button><button id="clearCart" class="btn-full clear-btn"><i data-lucide="trash-2"></i> Clear Cart</button><div id="payment"><h2>Send Bitcoin to Complete Order</h2><p>Amount: <strong><span id="btcAmount">0</span> BTC</strong> ≈ <span id="usdAmount">$0.00</span></p><div class="address" id="btcAddress"></div><img id="qrCode" src="" alt="QR"><a id="walletLink" href="" target="_blank" class="btn-full" style="background:#f7931a;color:white"><i data-lucide="wallet"></i> Open in Wallet</a><p style="font-size:14px;color:var(--muted)">Payment auto-detected in ~10–60s<br><strong>Do not close this page</strong></p></div><div id="success" class="success" style="display:none"><h3>PAYMENT CONFIRMED!</h3><p>Your order is being processed. Check your email.</p></div></div><script>lucide.createIcons();function getCart(){return JSON.parse(localStorage.getItem('cart')||'[]')}function update(){const c=getCart();const i=document.getElementById("items");i.innerHTML='';if(!c.length){i.innerHTML=`<p style="text-align:center;color:var(--muted);font-size:18px;padding:4rem">Empty cart</p>`;document.getElementById("total").textContent="$0.00";return}let t=0;c.forEach(x=>{const q=x.qty||1;const p=parseFloat(x.price)||0;t+=p*q;i.innerHTML+=`<div class="item"><img src="\( {x.image}"><div class="item-info"><div class="item-name"> \){x.name}</div><div class="item-price"> \]{p.toFixed(2)} × \( {q} = \[ {(p*q).toFixed(2)}</div></div></div>`});document.getElementById("total").textContent=" \)"+t.toFixed(2)}update();document.getElementById("checkout").onclick=async()=>{const c=getCart();if(!c.length)return alert("Cart empty!");const total=c.reduce((s,x)=>s+(parseFloat(x.price)||0)*(x.qty||1),0).toFixed(2);const email=prompt(`Total: \]{total}\nDelivery email:`, "");if(!email||!email.includes("@"))return alert("Valid email required!");const res=await fetch("/api/checkout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,cart:c})}).then(r=>r.json());if(!res.ok)return alert("Error: "+(res.error||"Unknown"));document.getElementById("btcAmount").textContent=res.amount_btc+" BTC";document.getElementById("usdAmount").textContent="$"+res.amount_usd;document.getElementById("btcAddress").textContent=res.payment_address;document.getElementById("qrCode").src=res.qr;document.getElementById("walletLink").href=res.wallet_uri;document.getElementById("payment").style.display="flex";document.getElementById("checkout").style.display="none";localStorage.removeItem("cart");update();alert("Send exactly "+res.amount_btc+" BTC\nAuto-confirm in seconds!");let check=setInterval(async()=>{try{const r=await fetch("/api/checkout").then(r=>r.text());if(r.includes("paid")){clearInterval(check);document.getElementById("payment").style.display="none";document.getElementById("success").style.display="block"}}catch{}},5000)};document.getElementById("clearCart").onclick=()=>{if(confirm("Clear cart?")){localStorage.removeItem("cart");update()}}</script></body></html>"""
 
-LOGIN_HTML = """<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>VIXN • Admin Login</title>
-<style>
-body{font-family:sans-serif;background:#0a0a0a;color:#f0f0f5;display:flex;align-items:center;justify-content:center;height:100vh}
-.login-box{background:rgba(20,20,30,0.8);padding:2rem;border-radius:16px;width:300px;text-align:center;border:1px solid rgba(255,255,255,0.1)}
-input{width:100%;padding:10px;margin:8px 0;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:#0a0a0a;color:white}
-button{width:100%;padding:12px;margin-top:8px;border:none;border-radius:12px;background:linear-gradient(135deg,#00ff9d,#7b2ff7);color:black;font-weight:700;cursor:pointer}
-button:hover{transform:scale(1.05)}
-.error{color:#ff3b5c;margin-bottom:8px}
-</style>
-</head>
-<body>
-<div class="login-box">
-<h2>Admin Login</h2>
-{% if error %}<div class="error">{{ error }}</div>{% endif %}
-<form method="post">
-<input type="text" name="username" placeholder="Username" required>
-<input type="password" name="password" placeholder="Password" required>
-<button type="submit">Login</button>
-</form>
-</div>
-</body>
-</html>
-"""
+LOGIN_HTML = """<!doctype html><html><head><title>VIXN • Admin Login</title><style>body{background:#0a0a0a;color:#f0f0f5;display:grid;place-items:center;height:100vh;margin:0;font-family:'Inter',sans-serif}.box{background:rgba(20,20,30,0.8);padding:50px;border-radius:20px;width:380px;border:1px solid rgba(255,255,255,0.1);backdrop-filter:blur(12px)}h2{text-align:center;margin-bottom:30px;background:linear-gradient(135deg,#00ff9d,#7b2ff7);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-size:28px}input,button{padding:14px;margin:10px 0;width:100%;border-radius:12px;border:none;font-size:16px}input{background:#1e1e2e;color:white}button{background:#00ff9d;color:black;font-weight:700;cursor:pointer}.error{color:#ff6b6b;text-align:center;margin-top:10px}</style></head><body><div class="box"><h2>VIXN Admin</h2><form method=post><input name=username placeholder="Username" required><input type=password name=password placeholder="Password" required><button>Login</button>{% if error %}<p class="error">{{error}}</p>{% endif %}</form></div></body></html>"""
 
-ADMIN_HTML = """<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>VIXN • Admin Panel</title>
-<style>
-body{font-family:sans-serif;background:#0a0a0a;color:#f0f0f5;padding:2rem}
-h1{margin-bottom:1rem;color:#00ff9d}
-table{width:100%;border-collapse:collapse;margin-bottom:2rem}
-th,td{border-bottom:1px solid rgba(255,255,255,0.1);padding:10px;text-align:left}
-th{color:#00ff9d}
-input,textarea{width:100%;padding:8px;margin:4px 0;background:#0a0a0a;color:white;border:1px solid rgba(255,255,255,0.2);border-radius:8px}
-button{padding:10px 16px;background:linear-gradient(135deg,#00ff9d,#7b2ff7);border:none;border-radius:10px;color:black;font-weight:700;cursor:pointer;margin-top:4px}
-button:hover{transform:scale(1.05)}
-a{color:#00ff9d;text-decoration:none}
-</style>
-</head>
-<body>
-<h1>Admin Panel</h1>
-<a href="/admin/logout">Logout</a>
-<h2>Add Product</h2>
-<form id="addForm">
-<input type="text" name="name" placeholder="Product Name" required>
-<input type="text" name="price" placeholder="Price USD" required>
-<input type="text" name="image" placeholder="Image URL">
-<input type="file" name="image_file">
-<textarea name="description" placeholder="Description"></textarea>
-<button type="submit">Add Product</button>
-</form>
-<h2>Products</h2>
-<table>
-<tr><th>ID</th><th>Name</th><th>Price</th><th>Actions</th></tr>
-{% for p in products %}
-<tr>
-<td>{{ p.id }}</td>
-<td>{{ p.name }}</td>
-<td>${{ p.price }}</td>
-<td><button data-id="{{ p.id }}" class="delBtn">Delete</button></td>
-</tr>
-{% endfor %}
-</table>
-<h2>Purchases</h2>
-<table>
-<tr><th>Time</th><th>Email</th><th>Total</th><th>Items</th></tr>
-{% for pur in purchases %}
-<tr>
-<td>{{ pur.timestamp }}</td>
-<td>{{ pur.email }}</td>
-<td>${{ pur.total }}</td>
-<td>{% for it in pur.items %}{{ it.name }} x{{ it.qty }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
-</tr>
-{% endfor %}
-</table>
-<script>
-document.getElementById("addForm").addEventListener("submit",function(e){e.preventDefault();let f=new FormData(this);fetch("/api/add_product",{method:"POST",body:f}).then(r=>r.json()).then(d=>{if(d.ok)location.reload();else alert(d.error)})})
-document.querySelectorAll(".delBtn").forEach(b=>{b.addEventListener("click",()=>{if(confirm("Delete product?")){fetch("/api/delete_product",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:parseInt(b.dataset.id)})}).then(r=>r.json()).then(d=>{if(d.ok)location.reload();else alert(d.error)})}})})
-</script>
-</body>
-</html>
-"""
-
-# ============================ Run App ============================
+ADMIN_HTML = """<!doctype html><html><head><title>VIXN • Admin Panel</title><style>body{background:#0a0a0a;color:#f0f0f5;font-family:'Inter',sans-serif;padding:2rem}.c{max-width:1200px;margin:auto}h1{background:linear-gradient(135deg,#00ff9d,#7b2ff7);-webkit-background-clip:text;-webkit-text-fill-color:transparent}.p{background:rgba(20,20,30,0.6);padding:24px;border-radius:16px;margin:20px 0;border:1px solid rgba(255,255,255,0.1)}input,textarea,button{padding:12px;margin:8px 0;border-radius:12px;width:100%;background:#1e1e2e;color:white;border:none}button{background:#00ff9d;color:black;font-weight:700;cursor:pointer}.del{background:#ef4444!important;color:white!important;padding:10px 20px;width:auto}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{padding:12px;border-bottom:1px solid rgba(255,255,255,0.1);text-align:left}img{max-height:80px;border-radius:12px}.paid{color:#10b981;font-weight:bold}.pending{color:#fb923c}</style></head><body><div class="c"><h1>VIXN • Admin Panel</h1><a href="/admin/logout"><button style="background:#ef4444;float:right">Logout</button></a><a href="/"><button style="background:#00ff9d;color:black;float:right;margin-right:10px">View Shop</button></a><div class="p"><h2>Add Product</h2><form id="f" enctype="multipart/form-data"><input name=name placeholder="Name" required><input name=price placeholder="Price" required><input name=image placeholder="Image URL"><input type=file name=image_file accept="image/*"><textarea name=description placeholder="Description" rows="3"></textarea><button type=submit>Add Product</button></form></div><div class="p"><h2>Products ({{products|length}})</h2><table><tr><th>Img</th><th>Name</th><th>Price</th><th>Action</th></tr>{% for p in products %}<tr><td><img src="{{p.image}}"></td><td><strong>{{p.name}}</strong></td><td>\( {{p.price}}</td><td><button class="del" onclick="if(confirm('Delete?'))fetch('/api/delete_product',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:{{p.id}}})}).then(()=>location.reload())">Delete</button></td></tr>{% endfor %}</table></div><div class="p"><h2>Orders ({{purchases|length}})</h2><table><tr><th>Time</th><th>Email</th><th>USD</th><th>BTC</th><th>Status</th><th>TX</th></tr>{% for p in purchases|reverse %}<tr><td>{{p.timestamp[:19].replace('T',' ')}}</td><td>{{p.email}}</td><td> \){{p.total_usd}}</td><td>{{p.total_btc}}</td><td><span class="{% if p.status == 'paid' %}paid{% else %}pending{% endif %}">{{p.status.upper()}}</span></td><td>{% if p.txid %}<a href="https://mempool.space/tx/{{p.txid}}" target="_blank">{{p.txid[:8]}}...</a>{% else %}-{% endif %}</td></tr>{% endfor %}</table></div><script>document.getElementById("f").onsubmit=e=>{e.preventDefault();fetch('/api/add_product',{method:'POST',body:new FormData(e.target)}).then(r=>r.json()).then(d=>d.ok?location.reload():alert("Error: "+d.error))}</script></body></html>"""
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
+    print(f"VIXN 2025 AUTO-CONFIRM SHOP RUNNING ON PORT {port}")
+    print(f"BTC Wallet: {BTC_WALLET}")
     app.run(host="0.0.0.0", port=port, debug=False)
