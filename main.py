@@ -7,7 +7,7 @@ from functools import lru_cache
 app = Flask(__name__)
 app.secret_key = "vixn_2025_ultra_secret_auto_confirm"
 
-========================= CONFIG =========================
+# ========================= CONFIG =========================
 
 ADMIN_USER = "Admin"
 ADMIN_PASS = "admin12"
@@ -32,7 +32,7 @@ pending_payments = {} # token -> {amount_btc, email, cart, paid: False}
 # Background checker thread
 def payment_watcher():
     while True:
-        time.sleep(15) # Check every 15 seconds
+        time.sleep(15)
         for token, data in list(pending_payments.items()):
             if data.get("paid"):
                 continue
@@ -41,7 +41,7 @@ def payment_watcher():
                 tx_url = f"https://blockstream.info/api/address/{BTC_WALLET}/txs"
                 recent_txs = requests.get(tx_url, timeout=10).json()
                 
-                for tx in recent_txs[:10]: # Check last 10 txs
+                for tx in recent_txs[:10]:
                     txid = tx["txid"]
                     value = 0
                     for vout in tx.get("vout", []):
@@ -50,7 +50,7 @@ def payment_watcher():
                             
                     btc_received = value / 100000000
                     
-                    if abs(btc_received - amount_btc) < 0.00005: # ~$3 tolerance for float comparison
+                    if abs(btc_received - amount_btc) < 0.00005:
                         # PAYMENT FOUND!
                         purchases = read_purchases()
                         for p in purchases:
@@ -64,14 +64,13 @@ def payment_watcher():
                         print(f"PAYMENT CONFIRMED! {data['email']} paid {amount_btc:.8f} BTC | TX: {txid}")
                         break
             except Exception as e:
-                # Log or handle exceptions gracefully, e.g., network error
                 print(f"Error checking payment for token {token}: {e}")
                 continue 
 
 # Start background watcher
 threading.Thread(target=payment_watcher, daemon=True).start()
 
-========================= DATA HELPERS =========================
+# ========================= DATA HELPERS =========================
 
 def read_products():
     try:
@@ -98,7 +97,7 @@ def write_purchases(data):
 def next_id():
     return max([p.get("id", 0) for p in read_products()], default=0) + 1
 
-========================= AUTH =========================
+# ========================= AUTH =========================
 
 def login_required(f):
     from functools import wraps
@@ -109,7 +108,7 @@ def login_required(f):
         return f(*args, **kwargs)
     return wrapper
 
-========================= BTC PRICE =========================
+# ========================= BTC PRICE =========================
 
 @lru_cache(maxsize=1)
 def get_btc_price():
@@ -119,7 +118,7 @@ def get_btc_price():
     except:
         return 95000
 
-========================= ROUTES =========================
+# ========================= ROUTES =========================
 
 @app.route("/")
 def home():
@@ -257,9 +256,8 @@ def checkout():
 def uploaded_file(filename):
     return send_from_directory(UPLOAD_FOLDER, filename)
 
-========================= FULL HTML TEMPLATES (FIXED RAW STRINGS) =========================
+# ========================= FULL HTML TEMPLATES =========================
 
-# FIX: Added 'r' prefix for Raw String Literal
 HOME_HTML = r"""
 <!DOCTYPE html>
 <html lang="en">
@@ -355,7 +353,6 @@ HOME_HTML = r"""
                     const d = document.createElement("div");
                     d.className = "card";
                     
-                    // FIXED JAVASCRIPT TEMPLATE LITERALS
                     d.innerHTML = `
                         <img src="${x.image}" alt="${x.name}">
                         <div class="card-body">
@@ -378,7 +375,6 @@ HOME_HTML = r"""
 </html>
 """ 
 
-# FIX: Added 'r' prefix for Raw String Literal
 CART_HTML = r"""
 <!DOCTYPE html>
 <html lang="en">
@@ -478,7 +474,6 @@ CART_HTML = r"""
                 const p = parseFloat(x.price) || 0;
                 t += p * q;
                 
-                // FIXED JAVASCRIPT TEMPLATE LITERALS
                 i.innerHTML += `
                     <div class="item">
                         <img src="${x.image}">
@@ -500,7 +495,6 @@ CART_HTML = r"""
             
             const total = c.reduce((s, x) => s + (parseFloat(x.price) || 0) * (x.qty || 1), 0).toFixed(2);
             
-            // FIXED JAVASCRIPT TEMPLATE LITERALS
             const email = prompt(`Total: $${total}\nDelivery email:`, ""); 
             
             if(!email || !email.includes("@")) return alert("Valid email required!");
@@ -529,8 +523,6 @@ CART_HTML = r"""
 
             let check = setInterval(async() => {
                 try {
-                    // NOTE: This client-side payment polling logic is unreliable, 
-                    // but is preserved here as it was in the original code structure.
                     const r = await fetch("/api/products").then(r => r.text()); 
                     
                     if (document.title.includes("paid")) {
@@ -553,7 +545,6 @@ CART_HTML = r"""
 </html>
 """ 
 
-# FIX: Added 'r' prefix for Raw String Literal
 LOGIN_HTML = r"""
 <!DOCTYPE html>
 <html lang="en">
@@ -588,7 +579,6 @@ LOGIN_HTML = r"""
 </html>
 """ 
 
-# FIX: Added 'r' prefix for Raw String Literal
 ADMIN_HTML = r"""
 <!DOCTYPE html>
 <html lang="en">
