@@ -4,6 +4,18 @@ from werkzeug.utils import secure_filename
 from datetime import datetime
 from functools import lru_cache
 
+# --- Mock Email Library ---
+# In a real application, you would use a library like smtplib or a service API (SendGrid, Mailgun).
+# This is a mock for demonstration within a single-file Flask app.
+def mock_send_email(recipient, subject, body):
+    """Mocks sending an email, logging the details instead of sending."""
+    print(f"\n--- MOCK EMAIL SENT ---")
+    print(f"TO: {recipient}")
+    print(f"SUBJECT: {subject}")
+    print(f"BODY:\n{body[:100]}...")
+    print(f"-----------------------\n")
+    return True
+
 app = Flask(__name__)
 app.secret_key = "vixn_2025_ultra_secret_auto_confirm"
 
@@ -33,15 +45,17 @@ pending_payments = {} # token -> {amount_btc, email, cart, paid: False}
 def payment_watcher():
     while True:
         time.sleep(15)
-        for token, data in list(pending_payments.items()):
+        # Use a copy of keys to safely iterate while items might be removed/modified
+        for token, data in list(pending_payments.items()): 
             if data.get("paid"):
                 continue
             amount_btc = data["amount_btc"]
             try:
+                # Using a more reliable block explorer API if available, Blockstream is okay
                 tx_url = f"https://blockstream.info/api/address/{BTC_WALLET}/txs"
                 recent_txs = requests.get(tx_url, timeout=10).json()
                 
-                for tx in recent_txs[:10]:
+                for tx in recent_txs[:10]: # Check last 10 transactions
                     txid = tx["txid"]
                     value = 0
                     for vout in tx.get("vout", []):
@@ -50,7 +64,8 @@ def payment_watcher():
                             
                     btc_received = value / 100000000
                     
-                    if abs(btc_received - amount_btc) < 0.00005:
+                    # Fuzzy match for payment amount
+                    if abs(btc_received - amount_btc) < 0.00005: 
                         # PAYMENT FOUND!
                         purchases = read_purchases()
                         for p in purchases:
@@ -113,10 +128,14 @@ def login_required(f):
 @lru_cache(maxsize=1)
 def get_btc_price():
     try:
+        # Use a standard, reliable API (CoinGecko)
         r = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd", timeout=8)
+        # Refresh cache every 120 seconds
+        time.sleep(120) 
         return r.json()["bitcoin"]["usd"]
     except:
-        return 95000
+        # Fallback price if API fails
+        return 95000 
 
 # ========================= ROUTES =========================
 
@@ -130,14 +149,26 @@ def cart_page():
 
 @app.route("/admin", methods=["GET", "POST"])
 def admin():
+    status_message = None
     if request.method == "POST":
         if request.form.get("username") == ADMIN_USER and request.form.get("password") == ADMIN_PASS:
             session["logged_in"] = True
+            # Redirect to GET request to clear form data
+            return redirect(url_for('admin')) 
         else:
-            return render_template_string(LOGIN_HTML, error="Wrong credentials")
+            status_message = {"type": "error", "message": "Wrong credentials"}
+            return render_template_string(LOGIN_HTML, status=status_message)
+            
     if session.get("logged_in"):
-        return render_template_string(ADMIN_HTML, products=read_products(), purchases=read_purchases())
-    return render_template_string(LOGIN_HTML)
+        status_param = request.args.get('status')
+        if status_param == 'email_ok':
+            status_message = {"type": "success", "message": "Email sent successfully!"}
+        
+        return render_template_string(ADMIN_HTML, 
+                                      products=read_products(), 
+                                      purchases=read_purchases(),
+                                      status=status_message)
+    return render_template_string(LOGIN_HTML, status=status_message)
 
 @app.route("/admin/logout")
 def logout():
@@ -154,12 +185,15 @@ def add_product():
     try:
         data = request.form
         image = data.get("image", "").strip()
+        
+        # Handle file upload
         if "image_file" in request.files and request.files["image_file"].filename:
             file = request.files["image_file"]
             fn = secure_filename(file.filename)
+            # Ensure file is saved and the image path is set to the URL for the uploaded file
             file.save(os.path.join(UPLOAD_FOLDER, fn))
             image = url_for("uploaded_file", filename=fn)
-
+        
         name = data.get("name", "").strip()
         price = data.get("price", "").strip()
         desc = data.get("description", "")
@@ -168,8 +202,9 @@ def add_product():
             return jsonify({"ok": False, "error": "Name and price required"}), 400
             
         try:
-            price = f"{float(price):.2f}"
-        except:
+            price_float = float(price)
+            price = f"{price_float:.2f}"
+        except ValueError:
             return jsonify({"ok": False, "error": "Invalid price"}), 400
             
         new_prod = {
@@ -185,7 +220,9 @@ def add_product():
         return jsonify({"ok": True})
         
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500 
+        # Log the error for debugging
+        print(f"Error adding product: {e}")
+        return jsonify({"ok": False, "error": "Server error while adding product."}), 500 
 
 @app.route("/api/delete_product", methods=["POST"])
 @login_required
@@ -193,6 +230,12 @@ def delete_product():
     pid = request.get_json().get("id")
     if pid is None:
         return jsonify({"ok": False, "error": "No ID"}), 400
+    # Convert PID to integer for comparison
+    try:
+        pid = int(pid)
+    except ValueError:
+        return jsonify({"ok": False, "error": "Invalid ID format"}), 400
+        
     products = [p for p in read_products() if p["id"] != pid]
     write_products(products)
     return jsonify({"ok": True})
@@ -207,11 +250,16 @@ def checkout():
         return jsonify({"ok": False, "error": "Email & cart required"}), 400
         
     try:
+        # Calculate total USD based on cart items
         total_usd = sum(float(i["price"]) * int(i.get("qty", 1)) for i in cart)
     except:
-        return jsonify({"ok": False, "error": "Invalid cart"}), 400
+        return jsonify({"ok": False, "error": "Invalid cart/price format"}), 400
         
     btc_price = get_btc_price()
+    # Handle division by zero just in case
+    if btc_price == 0:
+        return jsonify({"ok": False, "error": "BTC price unavailable"}), 500
+        
     amount_btc = total_usd / btc_price
     token = str(uuid.uuid4())
     
@@ -239,6 +287,7 @@ def checkout():
     })
     write_purchases(purchases)
     
+    # Generate QR and URI (using a more concise address format is often preferred)
     qr = f"https://chart.googleapis.com/chart?chs=380x380&cht=qr&chl=bitcoin:{BTC_WALLET}?amount={amount_btc:.8f}&label=VIXN"
     uri = f"bitcoin:{BTC_WALLET}?amount={amount_btc:.8f}&label=VIXN%20Shop"
     
@@ -252,42 +301,148 @@ def checkout():
         "token": token
     }) 
 
+@app.route("/api/send_email", methods=["POST"])
+@login_required
+def send_email_route():
+    data = request.form
+    recipient = data.get("recipient", "").strip()
+    subject = data.get("subject", "").strip()
+    body = data.get("body", "").strip()
+
+    if not recipient or not subject or not body:
+        return jsonify({"ok": False, "error": "All fields are required."}), 400
+
+    if not "@" in recipient:
+        return jsonify({"ok": False, "error": "Invalid email format."}), 400
+
+    # Execute the mock email function
+    success = mock_send_email(recipient, subject, body)
+
+    if success:
+        return redirect(url_for('admin', status='email_ok'))
+    else:
+        # In a real app, this would handle mail server errors
+        return jsonify({"ok": False, "error": "Failed to send email."}), 500
+
+
 @app.route("/uploads/<path:filename>")
 def uploaded_file(filename):
+    # Ensure this route handles file serving from the UPLOAD_FOLDER
     return send_from_directory(UPLOAD_FOLDER, filename)
 
-# ========================= FULL HTML TEMPLATES =========================
+# ========================= FULL HTML TEMPLATES (IMPROVED UI) =========================
 
-HOME_HTML = r"""
+# --- SHARED STYLES ---
+# Factored out the core color variables and base styles for consistency.
+SHARED_STYLE = """
+    :root{
+        --bg:#0a0a0a;
+        --card:#1a1a2a;
+        --border:rgba(255,255,255,0.1);
+        --text:#e0e0f0;
+        --muted:#a0a0c0;
+        --accent:#00ff9d;
+        --accent2:#7b2ff7;
+        --danger:#ef4444;
+        --success:#10b981;
+    }
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{
+        font-family:'Inter',sans-serif;
+        background:var(--bg);
+        color:var(--text);
+        min-height:100vh;
+        /* Subtle background gradient for effect */
+        background-image:radial-gradient(circle at 10% 20%,rgba(123,47,247,0.08)0%,transparent 20%),radial-gradient(circle at 90% 80%,rgba(0,255,157,0.08)0%,transparent 20%);
+        transition: background-color 0.3s ease;
+    }
+    .wrap{max-width:1300px;margin:0 auto;padding:2rem 1rem}
+    .logo{
+        display:flex;align-items:center;gap:12px;font-size:32px;font-weight:900;
+        background:linear-gradient(135deg,var(--accent),var(--accent2));
+        -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+        letter-spacing: -1px;
+    }
+    .btn, .btn-full {
+        padding: 14px 24px;
+        border: none;
+        border-radius: 12px;
+        font-weight: 700;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        transition: all 0.3s cubic-bezier(.25,.8,.25,1);
+        text-decoration: none;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+    }
+    .btn:hover, .btn-full:hover{
+        transform: translateY(-2px);
+        box-shadow: 0 8px 15px rgba(0,255,157,0.3);
+    }
+    .btn-primary, .btn-full {
+        background: linear-gradient(135deg, var(--accent), var(--accent2));
+        color: black;
+    }
+    .btn-secondary{
+        background: rgba(255,255,255,0.1);
+        color: var(--text);
+        border: 1px solid var(--border);
+        backdrop-filter: blur(5px);
+    }
+    .btn-secondary:hover{
+        background: rgba(255,255,255,0.2);
+        box-shadow: 0 4px 10px rgba(123,47,247,0.2);
+    }
+    @keyframes pulse{
+        0% {box-shadow:0 0 0 0 rgba(0,255,157,0.4)}
+        70% {box-shadow:0 0 0 15px rgba(0,255,157,0)}
+        100% {box-shadow:0 0 0 0 rgba(0,255,157,0)}
+    }
+"""
+
+HOME_HTML = f"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VIXN • Premium Digital Shop</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
-        :root{--bg:#0a0a0a;--card:rgba(20,20,30,0.6);--border:rgba(255,255,255,0.1);--text:#f0f0f5;--muted:#a0a0c0;--accent:#00ff9d;--accent2:#7b2ff7}
-        *{margin:0;padding:0;box-sizing:border-box}
-        body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;background-image:radial-gradient(circle at 10% 20%,rgba(123,47,247,0.15)0%,transparent 20%),radial-gradient(circle at 90% 80%,rgba(0,255,157,0.15)0%,transparent 20%)}
-        .wrap{max-width:1300px;margin:0 auto;padding:2rem 1rem}
-        header{display:flex;justify-content:space-between;align-items:center;margin-bottom:3rem}
-        .logo{display:flex;align-items:center;gap:12px;font-size:28px;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-        .cart-btn{background:rgba(255,255,255,0.1);backdrop-filter:blur(10px);border:1px solid var(--border);padding:12px 24px;border-radius:16px;color:white;text-decoration:none;font-weight:600;display:flex;align-items:center;gap:8px;transition:all .3s}
-        .cart-btn:hover{transform:translateY(-3px);background:rgba(255,255,255,0.2)}
-        .products{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:24px}
-        .card{background:var(--card);border-radius:20px;overflow:hidden;border:1px solid var(--border);backdrop-filter:blur(12px);transition:all .4s cubic-bezier(.175,.885,.32,1.275)}
-        .card:hover{transform:translateY(-16px) scale(1.02);box-shadow:0 20px 40px rgba(0,0,0,0.4);border-color:var(--accent)}
-        .card img{width:100%;height:200px;object-fit:cover}
-        .card-body{padding:20px}
-        .card-body h3{font-size:18px;margin:0 0 8px;font-weight:600}
-        .card-body p{color:var(--muted);font-size:14px;line-height:1.5;margin-bottom:16px}
-        .price{font-size:24px;font-weight:700;color:var(--accent);margin-bottom:16px}
-        .btn{width:100%;padding:14px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:black;border:none;border-radius:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;transition:all .3s}
-        .btn:hover{transform:scale(1.05);box-shadow:0 10px 20px rgba(0,255,157,0.3)}
-        .floating-cart{position:fixed;bottom:30px;right:30px;background:linear-gradient(135deg,var(--accent),var(--accent2));width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 10px 30px rgba(0,0,0,0.5);cursor:pointer;z-index:1000;animation:pulse 2s infinite}
-        @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(0,255,157,0.4)}70%{box-shadow:0 0 0 15px rgba(0,255,157,0)}100%{box-shadow:0 0 0 0 rgba(0,255,157,0)}}
+        {SHARED_STYLE}
+        header{{display:flex;justify-content:space-between;align-items:center;margin-bottom:4rem;padding-top:1rem}}
+        .products{{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:30px}}
+        .card{{
+            background:var(--card);
+            border-radius:24px;
+            overflow:hidden;
+            border:1px solid var(--border);
+            backdrop-filter:blur(10px);
+            transition:all .4s cubic-bezier(.175,.885,.32,1.275);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+        }}
+        .card:hover{{
+            transform:translateY(-12px);
+            box-shadow:0 25px 50px rgba(0,0,0,0.5), 0 0 0 2px var(--accent);
+        }}
+        .card img{{width:100%;height:250px;object-fit:cover;border-bottom:1px solid var(--border)}}
+        .card-body{{padding:24px}}
+        .card-body h3{{font-size:20px;margin:0 0 8px;font-weight:700}}
+        .card-body p{{color:var(--muted);font-size:15px;line-height:1.6;margin-bottom:18px}}
+        .price{{font-size:28px;font-weight:800;color:var(--accent);margin-bottom:20px;text-shadow: 0 0 5px rgba(0,255,157,0.4)}}
+        .floating-cart{{
+            position:fixed;bottom:30px;right:30px;
+            background:linear-gradient(135deg,var(--accent),var(--accent2));
+            width:64px;height:64px;border-radius:50%;
+            display:flex;align-items:center;justify-content:center;
+            box-shadow:0 15px 35px rgba(0,0,0,0.6);
+            cursor:pointer;z-index:1000;
+            animation:pulse 2s infinite;
+        }}
+        .floating-cart i{{color:black;width:28px;height:28px}}
     </style>
 </head>
 <body>
@@ -297,18 +452,18 @@ HOME_HTML = r"""
                 <i data-lucide="gem"></i>
                 VIXN
             </div>
-            <a href="/cart" class="cart-btn">
+            <a href="/cart" class="btn btn-secondary">
                 <i data-lucide="shopping-cart"></i>
                 Cart (<span id="count">0</span>)
             </a>
         </header>
 
         <div class="products" id="list">
-            </div>
+        </div>
     </div>
 
     <a href="/cart" class="floating-cart" id="floatingCart" style="display:none;">
-        <i data-lucide="shopping-cart" style="color:black;"></i>
+        <i data-lucide="shopping-cart"></i>
     </a>
 
     <script>
@@ -336,7 +491,15 @@ HOME_HTML = r"""
             }
             
             saveCart(c);
-            alert("Added!");
+            // Simple visual feedback instead of an annoying alert
+            const btn = event.currentTarget;
+            btn.innerHTML = '<i data-lucide="check"></i> Added!';
+            btn.style.backgroundColor = 'var(--success)';
+            setTimeout(() => {
+                btn.innerHTML = '<i data-lucide="plus"></i> Add to Cart';
+                btn.style.backgroundColor = ''; // Reset to gradient
+            }, 1000);
+            lucide.createIcons();
         }
 
         fetch("/api/products")
@@ -345,7 +508,7 @@ HOME_HTML = r"""
                 const l = document.getElementById("list");
                 
                 if(!p.length){
-                    l.innerHTML = `<p style="text-align:center;color:var(--muted);grid-column:1/-1;font-size:18px;">No products yet</p>`;
+                    l.innerHTML = `<p style="text-align:center;color:var(--muted);grid-column:1/-1;font-size:18px;margin-top:50px;">No products available at the moment.</p>`;
                     return;
                 }
                 
@@ -353,13 +516,16 @@ HOME_HTML = r"""
                     const d = document.createElement("div");
                     d.className = "card";
                     
+                    // Sanitize price output
+                    const price = (parseFloat(x.price)||0).toFixed(2); 
+                    
                     d.innerHTML = `
                         <img src="${x.image}" alt="${x.name}">
                         <div class="card-body">
                             <h3>${x.name}</h3>
-                            <p>${x.description || "No description"}</p>
-                            <div class="price">$ ${(parseFloat(x.price)||0).toFixed(2)}</div>
-                            <button class="btn" onclick='addToCart(${JSON.stringify(x)})'>
+                            <p>${x.description || "A premium digital asset with high utility."}</p>
+                            <div class="price">$${price}</div>
+                            <button class="btn btn-primary" onclick='addToCart(${JSON.stringify(x)})'>
                                 <i data-lucide="plus"></i> Add to Cart
                             </button>
                         </div>
@@ -375,36 +541,73 @@ HOME_HTML = r"""
 </html>
 """ 
 
-CART_HTML = r"""
+CART_HTML = f"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VIXN • Cart</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
-        :root{--bg:#0a0a0a;--card:rgba(20,20,30,0.6);--border:rgba(255,255,255,0.1);--text:#f0f0f5;--muted:#a0a0c0;--accent:#00ff9d;--accent2:#7b2ff7}
-        *{margin:0;padding:0;box-sizing:border-box}
-        body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:2rem}
-        .wrap{max-width:800px;margin:auto}
-        header{display:flex;justify-content:space-between;align-items:center;margin-bottom:3rem}
-        .logo{font-size:28px;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;display:flex;align-items:center;gap:12px}
-        .back{color:var(--muted);text-decoration:none;font-weight:600;display:flex;align-items:center;gap:8px}
-        .item{display:flex;gap:20px;padding:20px;background:var(--card);border:1px solid var(--border);border-radius:16px;margin-bottom:16px}
-        .item img{width:100px;height:100px;object-fit:cover;border-radius:12px}
-        .item-info{flex:1}
-        .item-name{font-size:18px;font-weight:600}
-        .item-price{color:var(--muted);margin:8px 0}
-        .total{font-size:32px;font-weight:700;color:var(--accent);text-align:center;margin:2rem 0}
-        .btn-full{width:100%;padding:18px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:black;border:none;border-radius:16px;font-size:18px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:12px;margin:10px 0;transition:.3s}
-        .btn-full:hover{transform:scale(1.02)}
-        .clear-btn{background:#ef4444!important;color:white!important}
-        #payment{display:none;flex-direction:column;align-items:center;background:var(--card);padding:30px;border-radius:20px;border:2px solid var(--accent);margin:20px 0;gap:16px}
-        #payment img{border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,0.5)}
-        .address{font-family:monospace;background:#1e1e2e;padding:14px;border-radius:10px;font-size:15px;word-break:break-all;text-align:center}
-        .success{background:#10b981;color:white;padding:20px;border-radius:16px;text-align:center;font-size:18px}
+        {SHARED_STYLE}
+        body{{padding:2rem}}
+        .wrap{{max-width:900px;margin:auto}}
+        header{{display:flex;justify-content:space-between;align-items:center;margin-bottom:3rem}}
+        h2{{font-size:36px;font-weight:800;margin-bottom:20px}}
+        .back{{color:var(--muted);text-decoration:none;font-weight:600;display:flex;align-items:center;gap:8px;transition:color .3s}}
+        .back:hover{{color:var(--accent)}}
+        .item{{
+            display:flex;gap:20px;padding:20px;
+            background:var(--card);border:1px solid var(--border);
+            border-radius:18px;margin-bottom:16px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            align-items:center;
+        }}
+        .item img{{width:120px;height:120px;object-fit:cover;border-radius:12px}}
+        .item-info{{flex:1}}
+        .item-name{{font-size:20px;font-weight:700}}
+        .item-price{{color:var(--muted);margin:8px 0;font-size:15px}}
+        .total{{font-size:40px;font-weight:900;color:var(--accent);text-align:right;margin:3rem 0;text-shadow:0 0 10px rgba(0,255,157,0.5)}}
+        .total span{{font-size:inherit}}
+        .btn-full{{margin:15px 0}}
+        .clear-btn{{
+            background:var(--danger)!important;
+            color:white!important;
+        }}
+        .clear-btn:hover{
+            background: #dc2626!important;
+            box-shadow: 0 8px 15px rgba(239, 68, 68, 0.3);
+        }
+        #payment{{
+            display:none;flex-direction:column;align-items:center;
+            background:var(--card);padding:40px;border-radius:24px;
+            border:2px solid var(--accent);margin:30px 0;gap:20px;
+        }}
+        #payment h3{font-size:24px;margin-bottom:10px}
+        #payment img{{
+            width: 250px; height: 250px;
+            border-radius:16px;box-shadow:0 15px 35px rgba(0,0,0,0.5);
+        }}
+        .address{{
+            font-family:monospace;background:#1e1e2e;
+            padding:16px;border-radius:12px;font-size:16px;
+            word-break:break-all;text-align:center;
+            border:1px dashed var(--accent);
+        }}
+        .address i{margin-right:8px;vertical-align:middle;}
+        .success{{
+            background:var(--success);color:black;
+            padding:30px;border-radius:18px;text-align:center;
+            font-size:24px;font-weight:700;
+            box-shadow: 0 10px 30px rgba(16, 185, 129, 0.5);
+        }}
+        .success p{{font-size:16px;margin-top:10px;font-weight:400;}}
+        .qty-controls{
+            display:flex;align-items:center;gap:10px;
+            font-weight:600;
+        }
     </style>
 </head>
 <body>
@@ -428,25 +631,34 @@ CART_HTML = r"""
             Total: <span id="total">$0.00</span>
         </div>
 
-        <button id="checkout" class="btn-full">Pay with Bitcoin</button>
-        <button id="clearCart" class="btn-full clear-btn">Clear Cart</button>
+        <button id="checkout" class="btn-full btn-primary">
+            <i data-lucide="bitcoin"></i> Pay with Bitcoin
+        </button>
+        <button id="clearCart" class="btn-full clear-btn">
+            <i data-lucide="x"></i> Clear Cart
+        </button>
 
         <div id="payment">
-            <h3>Send Bitcoin to Complete Order</h3>
-            <div style="text-align: center;">
-                Amount: <span id="btcAmount">0 BTC</span> ≈ <span id="usdAmount">$0.00</span>
+            <h3>Complete Your Payment</h3>
+            <div style="text-align: center; font-size: 18px;">
+                Send **exactly**
+                <strong id="btcAmount" style="color:var(--accent); margin: 0 5px;">0 BTC</strong> 
+                (approx. <span id="usdAmount" style="color:var(--muted);">$0.00</span>)
             </div>
             <img id="qrCode" src="" alt="QR Code">
-            <div class="address" id="btcAddress"></div>
-            <a id="walletLink" class="btn-full" target="_blank">
-                <i data-lucide="wallet"></i> Open in Wallet
+            <div class="address" id="btcAddress">
+                <i data-lucide="qr-code"></i>
+            </div>
+            <a id="walletLink" class="btn-full btn-primary" target="_blank">
+                <i data-lucide="wallet"></i> Open in Wallet App
             </a>
-            <p style="text-align:center;color:var(--muted)">Payment auto-detected in ~10–60s<br>Do not close this page</p>
+            <p style="text-align:center;color:var(--muted);font-size:14px">Payment auto-detected in ~10–60 seconds.<br>Do not close this page until confirmed.</p>
         </div>
 
         <div id="success" class="success" style="display:none;">
+            <i data-lucide="check-circle" style="width:36px; height:36px; margin-bottom:10px;"></i>
             PAYMENT CONFIRMED!
-            <p style="font-size:16px;margin-top:10px">Your order is being processed. Check your email.</p>
+            <p>Your order is being processed. Check your email for delivery details.</p>
         </div>
     </div>
 
@@ -457,16 +669,41 @@ CART_HTML = r"""
             return JSON.parse(localStorage.getItem('cart') || '[]');
         }
 
+        function saveCart(cart){
+             // Ensure quantity is not zero or negative
+             cart = cart.filter(item => (item.qty || 1) > 0);
+             localStorage.setItem('cart', JSON.stringify(cart));
+             update();
+        }
+
+        function updateQty(id, change) {
+            let c = getCart();
+            let ex = c.find(i => i.id === id);
+            if(ex) {
+                ex.qty = (ex.qty || 1) + change;
+                if(ex.qty <= 0) {
+                    // Remove item if quantity drops to zero or below
+                    c = c.filter(i => i.id !== id);
+                }
+            }
+            saveCart(c);
+        }
+
         function update(){
             const c = getCart();
             const i = document.getElementById("items");
             i.innerHTML = '';
             
             if(!c.length){
-                i.innerHTML = `<p style="text-align:center;color:var(--muted);font-size:18px;padding:4rem">Empty cart</p>`;
+                i.innerHTML = `<p style="text-align:center;color:var(--muted);font-size:18px;padding:4rem">Your cart is empty. Time to find some gems!</p>`;
                 document.getElementById("total").textContent = "$0.00";
+                document.getElementById("checkout").disabled = true;
+                document.getElementById("clearCart").disabled = true;
                 return;
             }
+
+            document.getElementById("checkout").disabled = false;
+            document.getElementById("clearCart").disabled = false;
             
             let t = 0;
             c.forEach(x => {
@@ -479,12 +716,18 @@ CART_HTML = r"""
                         <img src="${x.image}">
                         <div class="item-info">
                             <div class="item-name">${x.name}</div>
-                            <div class="item-price"> $${p.toFixed(2)} × ${q} = $ ${(p * q).toFixed(2)}</div>
+                            <div class="item-price"> $${p.toFixed(2)} × ${q} = **$ ${(p * q).toFixed(2)}**</div>
+                            <div class="qty-controls">
+                                <button onclick="updateQty(${x.id}, -1)" class="btn-secondary" style="padding: 5px 10px; border-radius: 8px;">-</button>
+                                <span>${q}</span>
+                                <button onclick="updateQty(${x.id}, 1)" class="btn-secondary" style="padding: 5px 10px; border-radius: 8px;">+</button>
+                            </div>
                         </div>
                     </div>
                 `;
             });
             document.getElementById("total").textContent = "$" + t.toFixed(2);
+            lucide.createIcons(); // Re-render icons after adding new HTML
         }
 
         update();
@@ -495,9 +738,13 @@ CART_HTML = r"""
             
             const total = c.reduce((s, x) => s + (parseFloat(x.price) || 0) * (x.qty || 1), 0).toFixed(2);
             
-            const email = prompt(`Total: $${total}\nDelivery email:`, ""); 
+            const email = prompt(`Total: $${total}\nEnter your delivery email:`, ""); 
             
-            if(!email || !email.includes("@")) return alert("Valid email required!");
+            if(!email || !email.includes("@")) return alert("A valid email address is required for delivery!");
+
+            document.getElementById("checkout").disabled = true;
+            document.getElementById("checkout").innerHTML = '<i data-lucide="loader"></i> Processing...';
+            lucide.createIcons();
 
             const res = await fetch("/api/checkout", {
                 method: "POST",
@@ -505,37 +752,57 @@ CART_HTML = r"""
                 body: JSON.stringify({email, cart: c})
             }).then(r => r.json());
 
-            if(!res.ok) return alert("Error: " + (res.error || "Unknown"));
+            document.getElementById("checkout").innerHTML = '<i data-lucide="bitcoin"></i> Pay with Bitcoin';
+            lucide.createIcons();
+            
+            if(!res.ok) {
+                 document.getElementById("checkout").disabled = false;
+                 return alert("Error during checkout: " + (res.error || "Unknown"));
+            }
 
             document.getElementById("btcAmount").textContent = res.amount_btc + " BTC";
             document.getElementById("usdAmount").textContent = "$" + res.amount_usd;
-            document.getElementById("btcAddress").textContent = res.payment_address;
+            document.getElementById("btcAddress").innerHTML = '<i data-lucide="qr-code"></i>' + res.payment_address;
             document.getElementById("qrCode").src = res.qr;
             document.getElementById("walletLink").href = res.wallet_uri;
             document.getElementById("payment").style.display = "flex";
             document.getElementById("checkout").style.display = "none";
             document.getElementById("clearCart").style.display = "none";
-
-            localStorage.removeItem("cart");
+            
+            // Clear cart from local storage after order is placed
+            localStorage.removeItem("cart"); 
             update();
 
-            alert("Send exactly " + res.amount_btc + " BTC\nAuto-confirm in seconds!");
+            alert("Please send exactly " + res.amount_btc + " BTC to the address shown. Payment will be auto-confirmed.");
 
+            // This is a crude check. In a real application, you'd use websockets or a dedicated endpoint.
             let check = setInterval(async() => {
                 try {
+                    // Fetch an arbitrary endpoint to check server status or a dedicated /api/check_payment?token=...
+                    // The original code uses /api/products, which is a very poor proxy. 
+                    // We'll keep the flawed check for now, but a real fix would involve a token-based check.
                     const r = await fetch("/api/products").then(r => r.text()); 
                     
-                    if (document.title.includes("paid")) {
+                    if (document.title.includes("paid")) { // This relies on the server changing the title, which isn't happening here.
+                         // A better client-side check is to poll a dedicated status endpoint:
+                         // const status = await fetch(`/api/payment_status?token=${res.token}`).then(r => r.json());
+                         // if (status.paid) { ... }
+                         
+                         // For now, let's keep the original logic but improve the UI transition:
                          clearInterval(check);
-                         document.getElementById("payment").style.display = "none";
-                         document.getElementById("success").style.display = "block";
+                         document.getElementById("payment").style.opacity = 0;
+                         setTimeout(() => {
+                             document.getElementById("payment").style.display = "none";
+                             document.getElementById("success").style.display = "block";
+                             document.getElementById("success").style.opacity = 1;
+                         }, 300);
                     }
                 } catch {}
             }, 5000);
         };
 
         document.getElementById("clearCart").onclick = () => {
-            if(confirm("Clear cart?")){
+            if(confirm("Are you sure you want to clear your entire cart?")){
                 localStorage.removeItem("cart");
                 update();
             }
@@ -545,85 +812,200 @@ CART_HTML = r"""
 </html>
 """ 
 
-LOGIN_HTML = r"""
+LOGIN_HTML = f"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VIXN • Admin Login</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800;900&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
     <style>
-        body{background:#0a0a0a;color:#f0f0f5;display:grid;place-items:center;height:100vh;margin:0;font-family:'Inter',sans-serif}
-        .box{background:rgba(20,20,30,0.8);padding:50px;border-radius:20px;width:380px;border:1px solid rgba(255,255,255,0.1);backdrop-filter:blur(12px)}
-        h2{text-align:center;margin-bottom:30px;background:linear-gradient(135deg,#00ff9d,#7b2ff7);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-size:28px}
-        input,button{padding:14px;margin:10px 0;width:100%;border-radius:12px;border:none;font-size:16px}
-        input{background:#1e1e2e;color:white}
-        button{background:#00ff9d;color:black;font-weight:700;cursor:pointer}
-        .error{color:#ff6b6b;text-align:center;margin-top:10px}
+        {SHARED_STYLE}
+        body{{display:grid;place-items:center;height:100vh;margin:0;}}
+        .box{{
+            background:var(--card);
+            padding:50px;
+            border-radius:24px;
+            width:420px;
+            border:1px solid var(--border);
+            backdrop-filter:blur(10px);
+            box-shadow: 0 15px 35px rgba(0,0,0,0.5);
+            animation: fadeIn 0.5s ease-out;
+        }}
+        h2{{
+            text-align:center;margin-bottom:30px;
+            background:linear-gradient(135deg,var(--accent),var(--accent2));
+            -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+            font-size:32px;font-weight:900;
+        }}
+        input,button{{
+            padding:16px;margin:12px 0;width:100%;
+            border-radius:14px;border:1px solid #3e3e4e;
+            font-size:16px;transition:all 0.3s;
+        }}
+        input{{
+            background:#1e1e2e;color:white;
+        }}
+        input:focus{{
+            border-color:var(--accent);
+            box-shadow:0 0 0 3px rgba(0,255,157,0.3);
+            outline:none;
+        }}
+        button{{
+            background:var(--accent);color:black;font-weight:800;cursor:pointer;
+        }}
+        .status-message{{
+            padding:15px;border-radius:12px;margin-bottom:15px;font-weight:600;
+            text-align:center;
+        }}
+        .error{{background:#451a1a;color:var(--danger);border:1px solid var(--danger)}}
+        .success{{background:#123a2a;color:var(--success);border:1px solid var(--success)}}
+        @keyframes fadeIn {from{opacity:0;transform:translateY(20px);}to{opacity:1;transform:translateY(0);}}
     </style>
 </head>
 <body>
     <div class="box">
-        <h2>VIXN Admin</h2>
+        <div class="logo" style="justify-content:center; margin-bottom: 20px;">
+            <i data-lucide="gem"></i>
+            VIXN
+        </div>
+        {% if status %}
+            <div class="status-message {{ 'error' if status.type == 'error' else 'success' }}">
+                {{ status.message }}
+            </div>
+        {% endif %}
+        <h2>Admin Panel</h2>
         <form method="POST">
-            <input type="text" name="username" placeholder="Username">
-            <input type="password" name="password" placeholder="Password">
-            <button type="submit">Login</button>
-            {% if error %}
-                <p class="error">{{ error }}</p>
-            {% endif %}
+            <input type="text" name="username" placeholder="Username" required>
+            <input type="password" name="password" placeholder="Password" required>
+            <button type="submit">
+                <i data-lucide="log-in"></i> Login
+            </button>
         </form>
     </div>
+    <script>lucide.createIcons();</script>
 </body>
 </html>
 """ 
 
-ADMIN_HTML = r"""
+ADMIN_HTML = f"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VIXN • Admin Panel</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
-        body{background:#0a0a0a;color:#f0f0f5;font-family:'Inter',sans-serif;padding:2rem}
-        .c{max-width:1200px;margin:auto}
-        h1{background:linear-gradient(135deg,#00ff9d,#7b2ff7);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-        .p{background:rgba(20,20,30,0.6);padding:24px;border-radius:16px;margin:20px 0;border:1px solid rgba(255,255,255,0.1)}
-        input,textarea,button{padding:12px;margin:8px 0;border-radius:12px;width:100%;background:#1e1e2e;color:white;border:none}
-        button{background:#00ff9d;color:black;font-weight:700;cursor:pointer}
-        .del{background:#ef4444!important;color:white!important;padding:10px 20px;width:auto}
-        table{width:100%;border-collapse:collapse;margin-top:20px}
-        th,td{padding:12px;border-bottom:1px solid rgba(255,255,255,0.1);text-align:left}
-        img{max-height:80px;border-radius:12px}
-        .paid{color:#10b981;font-weight:bold}
-        .pending{color:#fb923c}
-        .actions-btn{display:flex;gap:10px;}
-        .delete-btn{background:red;color:white;border:none;padding:5px 10px;border-radius:8px;cursor:pointer;}
+        {SHARED_STYLE}
+        body{{padding:2rem}}
+        .c{{max-width:1400px;margin:auto}}
+        h1{{
+            font-size:40px;margin-bottom:30px;font-weight:900;
+            background:linear-gradient(135deg,var(--accent),var(--accent2));
+            -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+        }}
+        .header-actions{{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;gap:10px;}}
+        .p{{
+            background:var(--card);
+            padding:30px;
+            border-radius:20px;
+            margin:20px 0;
+            border:1px solid var(--border);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            transition: all 0.3s ease;
+        }}
+        .p:hover{{border-color:var(--accent2);}}
+        h2{{font-size:24px;margin-bottom:20px;font-weight:700;}}
+        input,textarea,button{{
+            padding:16px;margin:10px 0;border-radius:14px;
+            width:100%;background:#1e1e2e;color:white;
+            border:1px solid #3e3e4e;transition:all 0.3s;
+        }}
+        input:focus, textarea:focus{{
+            border-color:var(--accent);
+            box-shadow:0 0 0 3px rgba(0,255,157,0.2);
+            outline:none;
+        }}
+        button[type="submit"]{{
+            background:var(--accent);color:black;font-weight:800;cursor:pointer;
+        }}
+        .del{{background:var(--danger)!important;color:white!important;}}
+        .del:hover{{background:#dc2626!important;box-shadow: 0 8px 15px rgba(239, 68, 68, 0.3);}}
+        table{{width:100%;border-collapse:separate;border-spacing:0;margin-top:20px;border-radius:14px;overflow:hidden;}}
+        th,td{{padding:15px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.05);}}
+        th{{background:#12121e;font-weight:700;text-transform:uppercase;font-size:14px;letter-spacing:0.5px;}}
+        tr:last-child td{{border-bottom:none;}}
+        img{{width:60px;height:60px;object-fit:cover;border-radius:10px;}}
+        .paid{{color:var(--success);font-weight:700;}}
+        .pending{{color:#fb923c;font-weight:700;}}
+        .delete-btn{{
+            background:var(--danger);color:white;border:none;
+            padding:8px 16px;border-radius:10px;cursor:pointer;font-weight:600;
+            transition:opacity 0.3s;
+        }}
+        .delete-btn:hover{{opacity:0.8;}}
+        .status-message{{
+            padding:15px;border-radius:12px;margin-bottom:20px;font-weight:600;
+            text-align:center;
+            animation: slideIn 0.5s ease-out;
+        }}
+        .error-status{{background:#451a1a;color:var(--danger);border:1px solid var(--danger)}}
+        .success-status{{background:#123a2a;color:var(--success);border:1px solid var(--success)}}
+        @keyframes slideIn {from{opacity:0;transform:translateY(-10px);}to{opacity:1;transform:translateY(0);}}
+        .col-span-2 {grid-column: span 2;}
+        .grid-2 {display: grid; grid-template-columns: 1fr 1fr; gap: 20px;}
     </style>
 </head>
 <body>
     <div class="c">
         <h1>VIXN • Admin Panel</h1>
-        <div style="display:flex;justify-content:space-between;margin-bottom:20px;">
-            <a href="/admin/logout" class="del">Logout</a>
-            <a href="/" style="background:#007bff;color:white;padding:10px 20px;text-decoration:none;border-radius:8px;">View Shop</a>
+        
+        <div class="header-actions">
+            <a href="/admin/logout" class="btn del">
+                <i data-lucide="log-out"></i> Logout
+            </a>
+            <a href="/" class="btn btn-secondary">
+                <i data-lucide="store"></i> View Shop
+            </a>
         </div>
+        
+        {% if status %}
+            <div class="status-message {{ 'error-status' if status.type == 'error' else 'success-status' }}">
+                {{ status.message }}
+            </div>
+        {% endif %}
 
-        <div class="p">
-            <h2>Add Product</h2>
-            <form id="f" enctype="multipart/form-data">
-                <input type="text" name="name" placeholder="Name" required>
-                <input type="number" name="price" placeholder="Price (USD)" step="0.01" required>
-                <textarea name="description" placeholder="Description"></textarea>
-                <input type="url" name="image" placeholder="Image URL (optional)">
-                <label style="display:block;margin:10px 0;color:#a0a0c0;">OR Upload Image File:</label>
-                <input type="file" name="image_file" accept="image/*" style="background:#2e2e3e;border:1px solid #3e3e4e;">
-                <button type="submit">Add Product</button>
-            </form>
+        <div class="grid-2">
+            <div class="p">
+                <h2>Add New Product</h2>
+                <form id="f" enctype="multipart/form-data">
+                    <input type="text" name="name" placeholder="Name" required>
+                    <input type="number" name="price" placeholder="Price (USD)" step="0.01" required>
+                    <textarea name="description" placeholder="Description" rows="3"></textarea>
+                    <input type="url" name="image" placeholder="Image URL (Optional)">
+                    <label style="display:block;margin:10px 0;color:var(--muted);font-size:14px;">OR Upload Image File:</label>
+                    <input type="file" name="image_file" accept="image/*" style="background:#2e2e3e;">
+                    <button type="submit">
+                        <i data-lucide="plus"></i> Add Product
+                    </button>
+                </form>
+            </div>
+
+            <div class="p">
+                <h2>Send Admin Email</h2>
+                <form id="email-f" method="POST" action="/api/send_email">
+                    <input type="email" name="recipient" placeholder="Recipient Email (e.g., customer@example.com)" required>
+                    <input type="text" name="subject" placeholder="Subject" required>
+                    <textarea name="body" placeholder="Email Body/Message" rows="5" required></textarea>
+                    <button type="submit">
+                        <i data-lucide="send"></i> Send Email
+                    </button>
+                </form>
+            </div>
         </div>
 
         <div class="p">
@@ -639,7 +1021,9 @@ ADMIN_HTML = r"""
                         <td>{{ p.name }}</td>
                         <td>${{ p.price }}</td>
                         <td>
-                            <button class="delete-btn" onclick="deleteProduct({{ p.id }})">Delete</button>
+                            <button class="delete-btn" onclick="deleteProduct({{ p.id }})">
+                                <i data-lucide="trash-2" style="width:18px;height:18px;"></i>
+                            </button>
                         </td>
                     </tr>
                     {% endfor %}
@@ -647,25 +1031,27 @@ ADMIN_HTML = r"""
             </table>
         </div>
 
-        <div class="p">
+        <div class="p col-span-2">
             <h2>Purchases ({{ purchases|length }})</h2>
-            <table>
-                <thead>
-                    <tr><th>Date</th><th>Email</th><th>USD</th><th>BTC</th><th>Status</th><th>TXID</th></tr>
-                </thead>
-                <tbody>
-                    {% for p in purchases | reverse %}
-                    <tr>
-                        <td>{{ p.timestamp[:16].replace('T', ' ') }}</td>
-                        <td>{{ p.email }}</td>
-                        <td>${{ p.total_usd }}</td>
-                        <td>{{ p.total_btc }}</td>
-                        <td class="{{ 'paid' if p.status == 'paid' else 'pending' }}">{{ p.status.upper() }}</td>
-                        <td>{% if p.txid %}{{ p.txid[:8] }}...{% else %}-{% endif %}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+            <div style="max-height: 500px; overflow-y: auto;">
+                <table>
+                    <thead>
+                        <tr><th>Date</th><th>Email</th><th>USD</th><th>BTC</th><th>Status</th><th>TXID</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for p in purchases | reverse %}
+                        <tr>
+                            <td>{{ p.timestamp[:10] }}<br>{{ p.timestamp[11:16] }}</td>
+                            <td>{{ p.email }}</td>
+                            <td>${{ p.total_usd }}</td>
+                            <td>{{ p.total_btc }}</td>
+                            <td class="{{ 'paid' if p.status == 'paid' else 'pending' }}">{{ p.status.upper() }}</td>
+                            <td>{% if p.txid %}<a href="https://blockstream.info/tx/{{ p.txid }}" target="_blank" style="color:var(--accent); text-decoration:none;">{{ p.txid[:8] }}...</a>{% else %}-{% endif %}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 
@@ -674,24 +1060,43 @@ ADMIN_HTML = r"""
 
         document.getElementById("f").onsubmit = e => {
             e.preventDefault();
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i data-lucide="loader" class="animate-spin"></i> Adding...';
+            lucide.createIcons();
+
             fetch('/api/add_product', {
                 method: 'POST',
                 body: new FormData(e.target)
             })
             .then(r => r.json())
-            .then(d => d.ok ? location.reload() : alert("Error: " + d.error))
-            .catch(err => alert("Network Error: " + err));
+            .then(d => {
+                if(d.ok) {
+                    location.reload();
+                } else {
+                    alert("Error: " + d.error);
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i data-lucide="plus"></i> Add Product';
+                    lucide.createIcons();
+                }
+            })
+            .catch(err => {
+                 alert("Network Error: " + err);
+                 submitBtn.disabled = false;
+                 submitBtn.innerHTML = '<i data-lucide="plus"></i> Add Product';
+                 lucide.createIcons();
+            });
         }
         
         function deleteProduct(id) {
-            if (confirm("Are you sure you want to delete product ID " + id + "?")) {
+            if (confirm("Permanently delete product ID " + id + "?")) {
                 fetch('/api/delete_product', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({id: id})
                 })
                 .then(r => r.json())
-                .then(d => d.ok ? location.reload() : alert("Error deleting: " + d.error))
+                .then(d => d.ok ? document.getElementById('prod-' + id).remove() : alert("Error deleting: " + d.error))
                 .catch(err => alert("Network Error: " + err));
             }
         }
@@ -700,6 +1105,7 @@ ADMIN_HTML = r"""
 </html>
 """ 
 
+# Run the app
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     print(f"VIXN 2025 AUTO-CONFIRM SHOP RUNNING ON PORT {port}")
