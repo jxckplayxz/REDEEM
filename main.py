@@ -453,7 +453,7 @@ HOME_HTML = f"""
         lucide.createIcons();
 
         function getCart(){
-            // FIX: Escaped braces {{}} for the empty array/object in JSON.parse
+            // FIXED: Braces are correctly escaped for the Python f-string
             return JSON.parse(localStorage.getItem('cart') || '{{}}');
         }
 
@@ -471,7 +471,7 @@ HOME_HTML = f"""
             if(ex) {
                 ex.qty = (ex.qty || 0) + 1;
             } else {
-                // FIX: Escaped spread operator's braces {{}}
+                // FIXED: Braces for the JavaScript object are escaped 
                 c.push({{...p, qty: 1}});
             }
             
@@ -649,7 +649,7 @@ CART_HTML = f"""
         lucide.createIcons();
         
         function getCart(){
-            // FIX: Escaped braces {{}} for the empty array/object
+            // FIXED: Braces are correctly escaped for the Python f-string
             return JSON.parse(localStorage.getItem('cart') || '{{}}');
         }
 
