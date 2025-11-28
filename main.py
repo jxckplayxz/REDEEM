@@ -128,17 +128,6 @@ def home():
 def cart_page():
     return render_template_string(CART_HTML)
 
-# NEW: Order Status Page
-@app.route("/status/<token>")
-def order_status(token):
-    purchases = read_purchases()
-    order = next((p for p in purchases if p.get("token") == token), None)
-    
-    if not order:
-        return render_template_string(STATUS_404_HTML)
-        
-    return render_template_string(STATUS_HTML, order=order)
-
 @app.route("/admin", methods=["GET", "POST"])
 def admin():
     if request.method == "POST":
@@ -252,7 +241,6 @@ def checkout():
     
     qr = f"https://chart.googleapis.com/chart?chs=380x380&cht=qr&chl=bitcoin:{BTC_WALLET}?amount={amount_btc:.8f}&label=VIXN"
     uri = f"bitcoin:{BTC_WALLET}?amount={amount_btc:.8f}&label=VIXN%20Shop"
-    status_url = url_for('order_status', token=token, _external=True) # NEW: Generate status URL
     
     return jsonify({
         "ok": True,
@@ -261,8 +249,7 @@ def checkout():
         "amount_usd": round(total_usd, 2),
         "qr": qr,
         "wallet_uri": uri,
-        "token": token,
-        "status_url": status_url # NEW: Return status URL
+        "token": token
     }) 
 
 @app.route("/uploads/<path:filename>")
@@ -418,8 +405,6 @@ CART_HTML = r"""
         #payment img{border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,0.5)}
         .address{font-family:monospace;background:#1e1e2e;padding:14px;border-radius:10px;font-size:15px;word-break:break-all;text-align:center}
         .success{background:#10b981;color:white;padding:20px;border-radius:16px;text-align:center;font-size:18px}
-        .status-link{margin-top:20px;font-size:16px;background:#1e1e2e;padding:15px;border-radius:10px;text-align:center;word-break:break-all;}
-        .status-link a{color:var(--accent);text-decoration:underline;}
     </style>
 </head>
 <body>
@@ -462,10 +447,6 @@ CART_HTML = r"""
         <div id="success" class="success" style="display:none;">
             PAYMENT CONFIRMED!
             <p style="font-size:16px;margin-top:10px">Your order is being processed. Check your email.</p>
-        </div>
-        
-        <div id="statusLinkContainer" class="status-link" style="display:none;">
-            Track your order: <a href="#" id="statusUrl">Loading...</a>
         </div>
     </div>
 
@@ -514,7 +495,7 @@ CART_HTML = r"""
             
             const total = c.reduce((s, x) => s + (parseFloat(x.price) || 0) * (x.qty || 1), 0).toFixed(2);
             
-            const email = prompt(\`Total: $${total}\\nDelivery email:\`, ""); 
+            const email = prompt(`Total: $${total}\nDelivery email:`, ""); 
             
             if(!email || !email.includes("@")) return alert("Valid email required!");
 
@@ -534,27 +515,20 @@ CART_HTML = r"""
             document.getElementById("payment").style.display = "flex";
             document.getElementById("checkout").style.display = "none";
             document.getElementById("clearCart").style.display = "none";
-            
-            // NEW: Display the status URL
-            const statusLinkElement = document.getElementById("statusUrl");
-            statusLinkElement.href = res.status_url;
-            statusLinkElement.textContent = res.status_url;
-            document.getElementById("statusLinkContainer").style.display = "block";
 
             localStorage.removeItem("cart");
             update();
 
-            alert("Send exactly " + res.amount_btc + " BTC\\nAuto-confirm in seconds!");
+            alert("Send exactly " + res.amount_btc + " BTC\nAuto-confirm in seconds!");
 
             let check = setInterval(async() => {
                 try {
-                    const r = await fetch(res.status_url).then(r => r.text()); 
+                    const r = await fetch("/api/products").then(r => r.text()); 
                     
-                    if (r.includes("PAID")) { // Check for the paid status on the new page
+                    if (document.title.includes("paid")) {
                          clearInterval(check);
                          document.getElementById("payment").style.display = "none";
                          document.getElementById("success").style.display = "block";
-                         document.getElementById("statusLinkContainer").style.display = "none";
                     }
                 } catch {}
             }, 5000);
@@ -724,105 +698,7 @@ ADMIN_HTML = r"""
     </script>
 </body>
 </html>
-"""
-
-STATUS_HTML = r"""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VIXN • Order Status</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <style>
-        :root{--bg:#0a0a0a;--card:rgba(20,20,30,0.6);--border:rgba(255,255,255,0.1);--text:#f0f0f5;--muted:#a0a0c0;--accent:#00ff9d;--accent2:#7b2ff7;--status-pending:#fb923c;--status-paid:#10b981}
-        *{margin:0;padding:0;box-sizing:border-box}
-        body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:grid;place-items:center;padding:2rem;}
-        .wrap{max-width:600px;width:100%;background:var(--card);padding:40px;border-radius:20px;border:1px solid var(--border);backdrop-filter:blur(12px);text-align:center;}
-        .logo{font-size:28px;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:30px;}
-        h2{font-size:24px;margin-bottom:20px;}
-        .status-badge{font-size:36px;font-weight:800;padding:15px 30px;border-radius:15px;margin:20px 0;display:inline-block;
-            background:{% if order.status == 'paid' %}var(--status-paid){% else %}var(--status-pending){% endif %};
-            color:black;text-transform:uppercase;
-        }
-        .detail{text-align:left;margin-top:20px;padding:15px;background:#1e1e2e;border-radius:10px;font-size:16px;}
-        .detail strong{color:var(--accent);}
-        .item-list{text-align:left;margin-top:20px;border-top:1px solid var(--border);padding-top:15px;}
-        .item-list div{margin-bottom:5px;font-size:14px;color:var(--muted);}
-    </style>
-</head>
-<body>
-    <div class="wrap">
-        <div class="logo"><i data-lucide="gem"></i>VIXN</div>
-        <h2>Order Status: {{ order.token[:8] }}...</h2>
-        
-        <div class="status-badge">
-            {% if order.status == 'paid' %}
-                <i data-lucide="check-circle" style="width:30px;height:30px;"></i> PAID
-            {% else %}
-                <i data-lucide="clock" style="width:30px;height:30px;"></i> PENDING
-            {% endif %}
-        </div>
-        
-        <div class="detail">
-            <p><strong>Total:</strong> ${{ order.total_usd }} ({{ order.total_btc }} BTC)</p>
-            <p><strong>Email:</strong> {{ order.email }}</p>
-            <p><strong>Time:</strong> {{ order.timestamp[:16].replace('T', ' ') }}</p>
-            {% if order.txid %}<p><strong>Transaction ID:</strong> <a href="https://blockstream.info/tx/{{ order.txid }}" target="_blank">{{ order.txid[:10] }}...</a></p>{% endif %}
-        </div>
-
-        <div class="item-list">
-            <strong>Items Ordered:</strong>
-            {% for item in order.items %}
-                <div>{{ item.name }} x {{ item.qty }} (${{ (item.price|float * item.qty)|round(2) }})</div>
-            {% endfor %}
-        </div>
-        
-        {% if order.status == 'pending' %}
-            <p style="margin-top:20px;color:var(--status-pending);font-weight:600;">Waiting for blockchain confirmation. Refresh to check for updates.</p>
-        {% else %}
-            <p style="margin-top:20px;color:var(--status-paid);font-weight:600;">Your digital goods will be delivered to your email shortly.</p>
-        {% endif %}
-
-    </div>
-    <script>lucide.createIcons();</script>
-</body>
-</html>
-"""
-
-STATUS_404_HTML = r"""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VIXN • Order Not Found</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <style>
-        :root{--bg:#0a0a0a;--card:rgba(20,20,30,0.6);--border:rgba(255,255,255,0.1);--text:#f0f0f5;--muted:#a0a0c0;--accent:#00ff9d;--accent2:#7b2ff7}
-        *{margin:0;padding:0;box-sizing:border-box}
-        body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:grid;place-items:center;padding:2rem;}
-        .wrap{max-width:600px;width:100%;background:var(--card);padding:40px;border-radius:20px;border:1px solid var(--border);backdrop-filter:blur(12px);text-align:center;}
-        .logo{font-size:28px;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:30px;}
-        h2{font-size:24px;margin-bottom:20px;color:#ef4444;}
-        p{color:var(--muted);}
-        a{color:var(--accent);text-decoration:underline;}
-    </style>
-</head>
-<body>
-    <div class="wrap">
-        <div class="logo"><i data-lucide="gem"></i>VIXN</div>
-        <h2>Order Not Found</h2>
-        <i data-lucide="search-x" style="width:50px;height:50px;margin:20px auto;color:#ef4444;"></i>
-        <p>The transaction ID or order token you provided is invalid or could not be found.</p>
-        <p style="margin-top:15px;">Please check the link again or return to the <a href="/">home page</a>.</p>
-    </div>
-    <script>lucide.createIcons();</script>
-</body>
-</html>
-"""
+""" 
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
