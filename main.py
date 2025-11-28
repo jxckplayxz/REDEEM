@@ -1,8 +1,9 @@
-# main.py — VIXN 2025 FULL — BTC WALLET CHECKOUT INCLUDED
+# main.py — VIXN 2025 Ultimate Edition — Shop + Admin + PayPal + BTC
 from flask import Flask, jsonify, request, send_from_directory, render_template_string, redirect, session, url_for
 import json, os
 from werkzeug.utils import secure_filename
 from datetime import datetime
+import requests
 
 app = Flask(__name__)
 app.secret_key = "vixn_2025_ultra_secret"
@@ -10,15 +11,14 @@ app.secret_key = "vixn_2025_ultra_secret"
 PAYPAL_USERNAME = "ContentDeleted939"
 ADMIN_USER = "Admin"
 ADMIN_PASS = "admin12"
-CRYPTO_WALLET_ADDRESS = "YOUR_BTC_WALLET_ADDRESS_HERE"
-CRYPTO_CURRENCY = "BTC"
-BTC_PRICE_USD = 30000  # Replace with real-time API if desired
+BTC_WALLET = "bc1qagcaenvmug20thznjtuqselmnjkp4q0yarewqe"
 
 PRODUCTS_FILE = 'products.json'
 PURCHASES_FILE = 'purchases.json'
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+# Ensure data files exist
 for f in [PRODUCTS_FILE, PURCHASES_FILE]:
     if not os.path.exists(f):
         with open(f, 'w', encoding='utf-8') as fp:
@@ -67,7 +67,7 @@ def home():
 
 @app.route("/cart")
 def cart_page():
-    return render_template_string(CART_HTML, wallet=CRYPTO_WALLET_ADDRESS, currency=CRYPTO_CURRENCY, btc_price=BTC_PRICE_USD)
+    return render_template_string(CART_HTML)
 
 @app.route("/admin", methods=["GET", "POST"])
 def admin():
@@ -92,38 +92,50 @@ def api_products():
 @app.route("/api/add_product", methods=["POST"])
 @login_required
 def add_product():
-    data = request.form
-    image = data.get("image", "").strip()
-    if "image_file" in request.files and request.files["image_file"].filename:
-        file = request.files["image_file"]
-        fn = secure_filename(file.filename)
-        file.save(os.path.join(UPLOAD_FOLDER, fn))
-        image = url_for("uploaded_file", filename=fn)
-    name = data.get("name", "").strip()
-    price = data.get("price", "").strip()
-    desc = data.get("description", "")
-    if not name or not price:
-        return jsonify({"ok": False, "error": "Name and price required"}), 400
     try:
-        price_val = float(price)
-        price = f"{price_val:.2f}"
-    except:
-        return jsonify({"ok": False, "error": "Price must be numeric"}), 400
-    new_prod = {"id": next_id(),"name": name,"price": price,"image": image or "https://via.placeholder.com/400x300/1e293b/e6eef8?text=No+Image","description": desc}
-    prods = read_products()
-    prods.append(new_prod)
-    write_products(prods)
-    return jsonify({"ok": True})
+        data = request.form
+        image = data.get("image", "").strip()
+        if "image_file" in request.files and request.files["image_file"].filename:
+            file = request.files["image_file"]
+            fn = secure_filename(file.filename)
+            file.save(os.path.join(UPLOAD_FOLDER, fn))
+            image = url_for("uploaded_file", filename=fn)
+        name = data.get("name", "").strip()
+        price = data.get("price", "").strip()
+        desc = data.get("description", "")
+        if not name or not price:
+            return jsonify({"ok": False, "error": "Name and price required"}), 400
+        try:
+            price_val = float(price)
+            price = f"{price_val:.2f}"
+        except:
+            return jsonify({"ok": False, "error": "Price must be numeric"}), 400
+        new_prod = {
+            "id": next_id(),
+            "name": name,
+            "price": price,
+            "image": image or "https://via.placeholder.com/400x300/1e293b/e6eef8?text=No+Image",
+            "description": desc
+        }
+        prods = read_products()
+        prods.append(new_prod)
+        write_products(prods)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 @app.route("/api/delete_product", methods=["POST"])
 @login_required
 def delete_product():
-    pid = request.get_json().get("id")
-    if pid is None:
-        return jsonify({"ok": False, "error": "No ID"}), 400
-    products = [p for p in read_products() if p["id"] != pid]
-    write_products(products)
-    return jsonify({"ok": True})
+    try:
+        pid = request.get_json().get("id")
+        if pid is None:
+            return jsonify({"ok": False, "error": "No ID"}), 400
+        products = [p for p in read_products() if p["id"] != pid]
+        write_products(products)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 @app.route("/api/checkout", methods=["POST"])
 def checkout():
@@ -134,10 +146,10 @@ def checkout():
         return jsonify({"ok": False, "error": "Email & cart required"}), 400
     try:
         total = sum(float(i["price"]) * int(i.get("qty", 1)) for i in cart)
-    except:
+    except Exception:
         return jsonify({"ok": False, "error": "Invalid cart prices/quantity"}), 400
     purchases = read_purchases()
-    purchases.append({"timestamp": datetime.now().isoformat(),"email": email,"total": round(total,2),"items": cart})
+    purchases.append({"timestamp": datetime.now().isoformat(), "email": email, "total": round(total, 2), "items": cart})
     write_purchases(purchases)
     url = f"https://www.paypal.me/{PAYPAL_USERNAME}/{total:.2f}"
     return jsonify({"ok": True, "paypal_url": url})
@@ -150,47 +162,46 @@ def crypto_checkout():
     if not email or not cart:
         return jsonify({"ok": False, "error": "Email & cart required"}), 400
     try:
-        total_usd = sum(float(i["price"]) * int(i.get("qty",1)) for i in cart)
-        total_btc = round(total_usd / BTC_PRICE_USD, 8)
+        total_usd = sum(float(i["price"]) * int(i.get("qty", 1)) for i in cart)
     except:
         return jsonify({"ok": False, "error": "Invalid cart prices/quantity"}), 400
+    # get BTC price in USD
+    try:
+        r = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd")
+        btc_price = r.json()["bitcoin"]["usd"]
+        btc_amount = round(total_usd / btc_price, 8)
+    except:
+        return jsonify({"ok": False, "error": "Failed to fetch BTC price"}), 500
     purchases = read_purchases()
-    purchases.append({
-        "timestamp": datetime.now().isoformat(),
-        "email": email,
-        "total": round(total_usd,2),
-        "items": cart,
-        "status": "pending",
-        "wallet_address": CRYPTO_WALLET_ADDRESS,
-        "currency": CRYPTO_CURRENCY,
-        "btc_amount": total_btc
-    })
+    purchases.append({"timestamp": datetime.now().isoformat(), "email": email, "total": round(total_usd,2), "items": cart, "crypto":"BTC"})
     write_purchases(purchases)
-    return jsonify({"ok": True, "wallet_address": CRYPTO_WALLET_ADDRESS, "btc_amount": total_btc, "currency": CRYPTO_CURRENCY})
+    return jsonify({"ok": True, "btc_amount": btc_amount, "wallet_address": BTC_WALLET})
 
 @app.route("/uploads/<path:filename>")
 def uploaded_file(filename):
     return send_from_directory(UPLOAD_FOLDER, filename)
 
-# ====================== HTML TEMPLATES ======================
+# ============================ HTML Templates ============================
 
 HOME_HTML = """<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>VIXN • Premium Digital Shop</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 <style>
 :root{--bg:#0a0a0a;--card:rgba(20,20,30,0.6);--border:rgba(255,255,255,0.1);--text:#f0f0f5;--muted:#a0a0c0;--accent:#00ff9d;--accent2:#7b2ff7}
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;background-image:radial-gradient(circle at 10% 20%, rgba(123, 47, 247, 0.15) 0%, transparent 20%),radial-gradient(circle at 90% 80%, rgba(0, 255, 157, 0.15) 0%, transparent 20%)}
 .wrap{max-width:1300px;margin:0 auto;padding:2rem 1rem}
-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:3rem}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:3rem;position:relative}
 .logo{display:flex;align-items:center;gap:12px;font-size:28px;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .cart-btn{background:rgba(255,255,255,0.1);backdrop-filter:blur(10px);border:1px solid var(--border);padding:12px 24px;border-radius:16px;color:white;text-decoration:none;font-weight:600;display:flex;align-items:center;gap:8px;transition:all 0.3s}
 .cart-btn:hover{transform:translateY(-3px);background:rgba(255,255,255,0.2)}
 .products{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:24px}
-.card{background:var(--card);border-radius:20px;overflow:hidden;border:1px solid var(--border);backdrop-filter:blur(12px);transition:all 0.4s;position:relative}
+.card{background:var(--card);border-radius:20px;overflow:hidden;border:1px solid var(--border);backdrop-filter:blur(12px);transition:all 0.4s cubic-bezier(0.175,0.885,0.32,1.275);position:relative}
 .card:hover{transform:translateY(-16px) scale(1.02);box-shadow:0 20px 40px rgba(0,0,0,0.4);border-color:var(--accent)}
 .card img{width:100%;height:200px;object-fit:cover}
 .card-body{padding:20px}
@@ -205,186 +216,159 @@ header{display:flex;justify-content:space-between;align-items:center;margin-bott
 </head>
 <body>
 <div class="wrap">
-  <header>
-    <div class="logo"><i data-lucide="zap" style="width:36px;height:36px;"></i> VIXN</div>
-    <a href="/cart" class="cart-btn"><i data-lucide="shopping-cart"></i> Cart (<span id="count">0</span>)</a>
-  </header>
-  <div id="list" class="products"></div>
+<header>
+<div class="logo"><i data-lucide="zap" style="width:36px;height:36px;"></i> VIXN</div>
+<a href="/cart" class="cart-btn"><i data-lucide="shopping-cart"></i> Cart (<span id="count">0</span>)</a>
+</header>
+<div id="list" class="products"></div>
 </div>
-
-<a href="/cart" class="floating-cart" id="floatingCart" style="display:none;">
-  <i data-lucide="shopping-bag" style="width:28px;height:28px;color:black;"></i>
-  <span style="position:absolute;top:-8px;right:-8px;background:#ff3b5c;color:white;width:24px;height:24px;border-radius:50%;font-size:12px;display:flex;align-items:center;justify-content:center;font-weight:bold;" id="floatCount">0</span>
-</a>
-
+<a href="/cart" class="floating-cart" id="floatingCart" style="display:none;"><i data-lucide="shopping-bag" style="width:28px;height:28px;color:black"></i><span style="position:absolute;top:-8px;right:-8px;background:#ff3b5c;color:white;width:24px;height:24px;border-radius:50%;font-size:12px;display:flex;align-items:center;justify-content:center;font-weight:bold" id="floatCount">0</span></a>
 <script>
 lucide.createIcons();
 function $(s){return document.querySelector(s)}
 function getCart(){return JSON.parse(localStorage.getItem('cart')||'[]')}
-function saveCart(c){
-  localStorage.setItem('cart',JSON.stringify(c))
-  const totalItems=c.reduce((s,i)=>s+(parseInt(i.qty)||0),0)
-  $('#count').textContent=totalItems
-  $('#floatCount').textContent=totalItems
-  document.getElementById('floatingCart').style.display=totalItems>0?'flex':'none'
-}
-function addToCart(p){
-  let c=getCart()
-  let ex=c.find(i=>i.id===p.id)
-  if(ex) ex.qty=(parseInt(ex.qty)||0)+1
-  else c.push({id:p.id,name:p.name,price:p.price,image:p.image,qty:1})
-  saveCart(c)
-  alert("Added to cart!")
-}
-fetch("/api/products").then(r=>r.json()).then(products=>{
-  const list=$("#list")
-  if(!products||products.length===0){list.innerHTML=`<p style="text-align:center;color:var(--muted);grid-column:1/-1;font-size:18px;">No products available yet</p>`;return;}
-  products.forEach(p=>{
-    const card=document.createElement("div");card.className="card"
-    const img=document.createElement("img");img.src=p.image||"https://via.placeholder.com/400x300/1e293b/e6eef8?text=No+Image";img.alt=p.name||"Product Image"
-    const body=document.createElement("div");body.className="card-body"
-    const h3=document.createElement("h3");h3.textContent=p.name
-    const desc=document.createElement("p");desc.textContent=p.description||"No description"
-    const price=document.createElement("div");price.className="price";let priceNum=parseFloat(p.price||0);price.textContent="$"+priceNum.toFixed(2)
-    const btn=document.createElement("button");btn.className="btn";btn.innerHTML=`<i data-lucide="plus"></i> Add to Cart`;btn.addEventListener('click',()=>addToCart(p))
-    body.appendChild(h3);body.appendChild(desc);body.appendChild(price);body.appendChild(btn)
-    card.appendChild(img);card.appendChild(body)
-    list.appendChild(card)
-  })
-  lucide.createIcons()
-}).catch(()=>$("#list").innerHTML="<p style='text-align:center;color:#888'>Error loading products</p>")
-saveCart(getCart())
+function saveCart(c){localStorage.setItem('cart',JSON.stringify(c));const totalItems=c.reduce((s,i)=>s+(parseInt(i.qty)||0),0);$('#count').textContent=totalItems;$('#floatCount').textContent=totalItems;document.getElementById('floatingCart').style.display=totalItems>0?'flex':'none'}
+function addToCart(p){let c=getCart();let ex=c.find(i=>i.id===p.id);if(ex) ex.qty=(parseInt(ex.qty)||0)+1; else c.push({id:p.id,name:p.name,price:p.price,image:p.image,qty:1});saveCart(c);alert("Added to cart!")}
+fetch("/api/products").then(r=>r.json()).then(products=>{const list=$("#list");if(!products||products.length===0){list.innerHTML='<p style="text-align:center;color:var(--muted);grid-column:1/-1;font-size:18px;">No products available yet</p>';return;}products.forEach(p=>{const card=document.createElement("div");card.className="card";const img=document.createElement("img");img.src=p.image||"https://via.placeholder.com/400x300/1e293b/e6eef8?text=No+Image";img.alt=p.name||"Product Image";const body=document.createElement("div");body.className="card-body";const h3=document.createElement("h3");h3.textContent=p.name;const desc=document.createElement("p");desc.textContent=p.description||"No description";const price=document.createElement("div");price.className="price";let priceNum=parseFloat(p.price||0);price.textContent="$"+priceNum.toFixed(2);const btn=document.createElement("button");btn.className="btn";btn.innerHTML='<i data-lucide="plus"></i> Add to Cart';btn.addEventListener('click',()=>addToCart(p));body.appendChild(h3);body.appendChild(desc);body.appendChild(price);body.appendChild(btn);card.appendChild(img);card.appendChild(body);list.appendChild(card)});lucide.createIcons()}).catch(()=>$("#list").innerHTML="<p style='text-align:center;color:#888'>Error loading products</p>");
+saveCart(getCart());
 </script>
-</body></html>"""
+</body>
+</html>
 
 CART_HTML = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>VIXN • Cart</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 <style>
-:root{--bg:#0a0a0a;--card:rgba(20,20,30,0.6);--border:rgba(255,255,255,0.1);--text:#f0f0f5;--muted:#a0a0c0;--accent:#00ff9d;--accent2:#7b2ff7}
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:2rem}
-.wrap{max-width:800px;margin:auto}
-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:3rem}
-.logo{font-size:28px;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;display:flex;align-items:center;gap:12px}
-.back{color:var(--muted);text-decoration:none;font-weight:600;display:flex;align-items:center;gap:8px}
-.item{display:flex;gap:20px;padding:20px;background:var(--card);border:1px solid var(--border);border-radius:16px;margin-bottom:16px}
-.item img{width:100px;height:100px;object-fit:cover;border-radius:12px}
-.item-info{flex:1}
-.item-name{font-size:18px;font-weight:600}
-.item-price{color:var(--muted);margin:8px 0}
-.total{font-size:32px;font-weight:700;color:var(--accent);text-align:center;margin:2rem 0}
-.btn-full{width:100%;padding:18px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:black;border:none;border-radius:16px;font-size:18px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:12px;margin:10px 0;transition:0.3s}
-.btn-full:hover{transform:scale(1.02)}
-.clear-btn{background:#ef4444 !important;color:white !important}
-</style></head><body>
-<div class="wrap">
-<header>
-  <div class="logo"><i data-lucide="zap"></i> VIXN</div>
-  <a href="/" class="back"><i data-lucide="arrow-left"></i> Continue Shopping</a>
-</header>
-<h1 style="text-align:center;margin-bottom:2rem;opacity:0.9">Your Cart</h1>
-<div id="items"></div>
-<div class="total">Total: <span id="total">$0.00</span></div>
-<button id="paypalCheckout" class="btn-full"><i data-lucide="credit-card"></i> Checkout with PayPal</button>
-<button id="cryptoCheckout" class="btn-full"><i data-lucide="hexagon"></i> Checkout with BTC</button>
-<button id=">Clear Cart</button>
+body{font-family:'Inter',sans-serif;background:#0a0a0a;color:#f0f0f5;padding:2rem}
+a{color:#00ff9d;text-decoration:none}
+.cart-table{width:100%;border-collapse:collapse;margin-bottom:2rem}
+.cart-table th, .cart-table td{border-bottom:1px solid rgba(255,255,255,0.1);padding:12px;text-align:left}
+.cart-table th{color:#00ff9d}
+.btn{padding:12px 24px;background:linear-gradient(135deg,#00ff9d,#7b2ff7);border:none;border-radius:12px;color:black;font-weight:700;cursor:pointer;display:inline-block;margin-top:1rem}
+.btn:hover{transform:scale(1.05);box-shadow:0 8px 20px rgba(0,255,157,0.3)}
+.total{font-size:22px;font-weight:700;margin-top:1rem;color:#00ff9d}
+</style>
+</head>
+<body>
+<h1>Your Cart</h1>
+<table class="cart-table" id="cartTable">
+<tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th><th></th></tr>
+</table>
+<div class="total" id="totalAmount"></div>
+<button class="btn" id="paypalBtn">Checkout with PayPal</button>
+<button class="btn" id="cryptoBtn">Checkout with BTC</button>
 <script>
 lucide.createIcons();
-function $(s){return document.querySelector(s)}
 function getCart(){return JSON.parse(localStorage.getItem('cart')||'[]')}
 function saveCart(c){localStorage.setItem('cart',JSON.stringify(c))}
-function renderCart(){
-    const cart=getCart();const items=$("#items");items.innerHTML="";let total=0;
-    cart.forEach(p=>{
-        let div=document.createElement("div");div.className="item";
-        div.innerHTML=`<img src="${p.image}" alt="${p.name}"><div class="item-info">
-        <div class="item-name">${p.name}</div>
-        <div class="item-price">$${(parseFloat(p.price)*parseInt(p.qty||1)).toFixed(2)} (${p.qty} pcs)</div>
-        <button style="padding:6px 12px;border:none;border-radius:8px;background:#ef4444;color:white;cursor:pointer;">Remove</button></div>`;
-        div.querySelector("button").onclick=()=>{let c=getCart();c=c.filter(i=>i.id!==p.id);saveCart(c);renderCart()};
-        items.appendChild(div);
-        total+=parseFloat(p.price)*(parseInt(p.qty)||1);
-    });
-    $("#total").textContent="$"+total.toFixed(2);
-}
+function renderCart(){const cart=getCart();const table=document.getElementById("cartTable");table.innerHTML='<tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th><th></th></tr>';let total=0;cart.forEach((p,i)=>{let tr=document.createElement("tr");let price=parseFloat(p.price)||0;let qty=parseInt(p.qty)||1;let line=price*qty;total+=line;tr.innerHTML=`<td>${p.name}</td><td><input type="number" min="1" value="${qty}" data-index="${i}" class="qtyInput" style="width:60px"></td><td>$${price.toFixed(2)}</td><td>$${line.toFixed(2)}</td><td><button data-index="${i}" class="removeBtn">Remove</button></td>`;table.appendChild(tr)});document.getElementById("totalAmount").textContent="Total: $"+total.toFixed(2)}
+document.addEventListener("input",function(e){if(e.target.classList.contains("qtyInput")){let c=getCart();c[e.target.dataset.index].qty=parseInt(e.target.value)||1;saveCart(c);renderCart()}})
+document.addEventListener("click",function(e){if(e.target.classList.contains("removeBtn")){let c=getCart();c.splice(e.target.dataset.index,1);saveCart(c);renderCart()}})
 renderCart();
-
-$("#clearCart").onclick=()=>{localStorage.removeItem("cart");renderCart()};
-
-async function paypalCheckout(){
-    let email=prompt("Enter your email for the receipt:");
-    if(!email)return;
-    let res=await fetch("/api/checkout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,cart:getCart()})});
-    let data=await res.json();
-    if(data.ok){window.location.href=data.paypal_url}else{alert(data.error||"Error during checkout")}
-}
-
-async function cryptoCheckout(){
-    let email=prompt("Enter your email for the receipt:");
-    if(!email)return;
-    let res=await fetch("/api/crypto_checkout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,cart:getCart()})});
-    let data=await res.json();
-    if(data.ok){
-        let msg=`Send exactly ${data.btc_amount} ${data.currency} to wallet:\n${data.wallet_address}`;
-        alert(msg);
-    } else {alert(data.error||"Error during BTC checkout")}
-}
-
-$("#paypalCheckout").onclick=paypalCheckout;
-$("#cryptoCheckout").onclick=cryptoCheckout;
+document.getElementById("paypalBtn").addEventListener("click",()=>{let email=prompt("Enter your email");if(!email)return;fetch("/api/checkout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:email,cart:getCart()})}).then(r=>r.json()).then(d=>{if(d.ok)window.location.href=d.paypal_url;else alert(d.error)})})
+document.getElementById("cryptoBtn").addEventListener("click",()=>{let email=prompt("Enter your email");if(!email)return;fetch("/api/crypto_checkout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:email,cart:getCart()})}).then(r=>r.json()).then(d=>{if(d.ok)alert("Send "+d.btc_amount+" BTC to wallet:\\n"+d.wallet_address);else alert(d.error)})})
 </script>
-</body></html>
+</body>
+</html>
 """
 
 LOGIN_HTML = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Admin Login</title>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VIXN • Admin Login</title>
 <style>
-body{background:#0a0a0a;color:white;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh}
-form{background:#111;padding:2rem;border-radius:12px;display:flex;flex-direction:column;gap:1rem;width:300px}
-input{padding:12px;border-radius:8px;border:none;font-size:16px}
-button{padding:12px;background:#00ff9d;color:black;font-weight:bold;border:none;border-radius:8px;cursor:pointer}
-.error{color:#ff4b5c;text-align:center}
+body{font-family:sans-serif;background:#0a0a0a;color:#f0f0f5;display:flex;align-items:center;justify-content:center;height:100vh}
+.login-box{background:rgba(20,20,30,0.8);padding:2rem;border-radius:16px;width:300px;text-align:center;border:1px solid rgba(255,255,255,0.1)}
+input{width:100%;padding:10px;margin:8px 0;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:#0a0a0a;color:white}
+button{width:100%;padding:12px;margin-top:8px;border:none;border-radius:12px;background:linear-gradient(135deg,#00ff9d,#7b2ff7);color:black;font-weight:700;cursor:pointer}
+button:hover{transform:scale(1.05)}
+.error{color:#ff3b5c;margin-bottom:8px}
 </style>
-</head><body>
-<form method="POST">
-<h2 style="text-align:center;">Admin Login</h2>
-<input name="username" placeholder="Username">
-<input name="password" type="password" placeholder="Password">
-<button>Login</button>
-{% if error %}<div class="error">{{error}}</div>{% endif %}
+</head>
+<body>
+<div class="login-box">
+<h2>Admin Login</h2>
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+<form method="post">
+<input type="text" name="username" placeholder="Username" required>
+<input type="password" name="password" placeholder="Password" required>
+<button type="submit">Login</button>
 </form>
-</body></html>"""
+</div>
+</body>
+</html>
+"""
 
 ADMIN_HTML = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Admin Panel</title>
-<style>body{font-family:sans-serif;background:#0a0a0a;color:white;padding:2rem}h1{margin-bottom:1rem}table{width:100%;border-collapse:collapse}td,th{border:1px solid #444;padding:8px;text-align:left}a{color:#00ff9d}</style>
-</head><body>
-<h1>Products</h1>
-<form method="POST" action="/api/add_product" enctype="multipart/form-data">
-<input name="name" placeholder="Name">
-<input name="price" placeholder="Price USD">
-<input name="description" placeholder="Description">
-<input type="file" name="image_file">
-<button>Add Product</button>
-</form>
-<table><tr><th>ID</th><th>Name</th><th>Price</th><th>Action</th></tr>
-{% for p in products %}
-<tr><td>{{p.id}}</td><td>{{p.name}}</td><td>${{p.price}}</td><td><button onclick="fetch('/api/delete_product',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:{{p.id}}})}).then(()=>location.reload())">Delete</button></td></tr>
-{% endfor %}
-</table>
-<h1>Purchases</h1>
-<table><tr><th>Email</th><th>Total</th><th>Items</th><th>Timestamp</th></tr>
-{% for pur in purchases %}
-<tr><td>{{pur.email}}</td><td>${{pur.total}}</td><td>{{pur.items}}</td><td>{{pur.timestamp}}</td></tr>
-{% endfor %}
-</table>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VIXN • Admin Panel</title>
+<style>
+body{font-family:sans-serif;background:#0a0a0a;color:#f0f0f5;padding:2rem}
+h1{margin-bottom:1rem;color:#00ff9d}
+table{width:100%;border-collapse:collapse;margin-bottom:2rem}
+th,td{border-bottom:1px solid rgba(255,255,255,0.1);padding:10px;text-align:left}
+th{color:#00ff9d}
+input,textarea{width:100%;padding:8px;margin:4px 0;background:#0a0a0a;color:white;border:1px solid rgba(255,255,255,0.2);border-radius:8px}
+button{padding:10px 16px;background:linear-gradient(135deg,#00ff9d,#7b2ff7);border:none;border-radius:10px;color:black;font-weight:700;cursor:pointer;margin-top:4px}
+button:hover{transform:scale(1.05)}
+a{color:#00ff9d;text-decoration:none}
+</style>
+</head>
+<body>
+<h1>Admin Panel</h1>
 <a href="/admin/logout">Logout</a>
-</body></html>"""
+<h2>Add Product</h2>
+<form id="addForm">
+<input type="text" name="name" placeholder="Product Name" required>
+<input type="text" name="price" placeholder="Price USD" required>
+<input type="text" name="image" placeholder="Image URL">
+<input type="file" name="image_file">
+<textarea name="description" placeholder="Description"></textarea>
+<button type="submit">Add Product</button>
+</form>
+<h2>Products</h2>
+<table>
+<tr><th>ID</th><th>Name</th><th>Price</th><th>Actions</th></tr>
+{% for p in products %}
+<tr>
+<td>{{ p.id }}</td>
+<td>{{ p.name }}</td>
+<td>${{ p.price }}</td>
+<td><button data-id="{{ p.id }}" class="delBtn">Delete</button></td>
+</tr>
+{% endfor %}
+</table>
+<h2>Purchases</h2>
+<table>
+<tr><th>Time</th><th>Email</th><th>Total</th><th>Items</th></tr>
+{% for pur in purchases %}
+<tr>
+<td>{{ pur.timestamp }}</td>
+<td>{{ pur.email }}</td>
+<td>${{ pur.total }}</td>
+<td>{% for it in pur.items %}{{ it.name }} x{{ it.qty }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
+</tr>
+{% endfor %}
+</table>
+<script>
+document.getElementById("addForm").addEventListener("submit",function(e){e.preventDefault();let f=new FormData(this);fetch("/api/add_product",{method:"POST",body:f}).then(r=>r.json()).then(d=>{if(d.ok)location.reload();else alert(d.error)})})
+document.querySelectorAll(".delBtn").forEach(b=>{b.addEventListener("click",()=>{if(confirm("Delete product?")){fetch("/api/delete_product",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:parseInt(b.dataset.id)})}).then(r=>r.json()).then(d=>{if(d.ok)location.reload();else alert(d.error)})}})})
+</script>
+</body>
+</html>
+"""
+
+# ============================ Run App ============================
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
