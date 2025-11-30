@@ -1,5 +1,5 @@
 # ================================================
-# CODEVAULT PRO v7 – MOBILE HAMBURGER MENU & UI ENHANCEMENTS
+# CODEVAULT PRO v7.1 – MOBILE NAVIGATION FIX
 # ================================================
 
 from flask import Flask, render_template_string, request, redirect, url_for, flash, abort, Response
@@ -11,7 +11,7 @@ import os
 import sqlite3
 from markupsafe import Markup 
 import json 
-import html # For escaping HTML in file names
+import html
 from sqlalchemy.exc import IntegrityError
 
 # ====================== APP SETUP ======================
@@ -24,7 +24,7 @@ db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
-# ====================== MODELS ======================
+# ====================== MODELS (UNCHANGED) ======================
 class User(UserMixin, db.Model):
     __tablename__ = 'user'
     id = db.Column(db.Integer, primary_key=True)
@@ -56,12 +56,11 @@ class CodeFile(db.Model):
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-# ====================== UTILITY FUNCTIONS ======================
+# ====================== UTILITY FUNCTIONS (UNCHANGED) ======================
 
 def fix_database():
     if not os.path.exists('codevault.db'):
         return
-    # Database fix logic (omitted for brevity)
     pass
 
 def get_prism_language(filename):
@@ -95,7 +94,7 @@ with app.app_context():
     fix_database()
 
 
-# ====================== NAVBAR TEMPLATE (New Mobile Sidebar) ======================
+# ====================== NAVBAR TEMPLATE (FIXED FOR MOBILE) ======================
 NAVBAR_TEMPLATE = '''
 <style>
     /* Custom styling for smooth sidebar transition */
@@ -135,17 +134,25 @@ NAVBAR_TEMPLATE = '''
         </a>
         {% endif %}
     </div>
-
-    <button id="menu-toggle" class="lg:hidden text-white hover:text-indigo-400 transition duration-150 p-1">
-        <i data-lucide="menu" class="w-6 h-6"></i>
-    </button>
-</nav>
+    <div class="lg:hidden flex items-center gap-2">
+        {% if current_user.is_authenticated %}
+        <button id="menu-toggle" class="text-white hover:text-indigo-400 transition duration-150 p-1">
+            <i data-lucide="menu" class="w-6 h-6"></i>
+        </button>
+        {% else %}
+        <a href="/login" class="bg-indigo-600 hover:bg-indigo-700 px-3 py-1 rounded-lg font-bold flex items-center gap-1 text-sm transition duration-150 hover:scale-[1.03] active:scale-95">
+            <i data-lucide="log-in" class="w-4 h-4"></i> Login
+        </a>
+        {% endif %}
+    </div>
+    </nav>
 
 <div id="sidebar" class="sidebar-transition fixed top-0 left-0 h-full w-64 bg-gray-900 z-[60] border-r border-gray-700 p-6 pt-24 lg:hidden">
     <div class="space-y-4">
         <a href="/explore" class="block text-gray-300 hover:text-indigo-400 flex items-center gap-3 text-lg p-2 rounded-lg transition duration-150 hover:bg-gray-800">
             <i data-lucide="compass" class="w-5 h-5"></i> Explore
         </a>
+
         {% if current_user.is_authenticated %}
         <a href="/dashboard" class="block text-gray-300 hover:text-indigo-400 flex items-center gap-3 text-lg p-2 rounded-lg transition duration-150 hover:bg-gray-800">
             <i data-lucide="folder-kanban" class="w-5 h-5"></i> My Code
@@ -156,10 +163,6 @@ NAVBAR_TEMPLATE = '''
         <div class="h-px bg-gray-700 my-4"></div>
         <a href="/logout" class="block text-red-400 hover:text-red-300 flex items-center gap-3 text-lg p-2 rounded-lg transition duration-150 hover:bg-gray-800">
             <i data-lucide="log-out" class="w-5 h-5"></i> Logout
-        </a>
-        {% else %}
-        <a href="/login" class="block bg-indigo-600 hover:bg-indigo-700 px-4 py-3 rounded-lg font-bold text-center flex items-center justify-center gap-2 transition duration-150 hover:scale-[1.02]">
-            <i data-lucide="log-in" class="w-5 h-5"></i> Login / Register
         </a>
         {% endif %}
     </div>
@@ -177,30 +180,33 @@ NAVBAR_TEMPLATE = '''
     const overlay = document.getElementById('sidebar-overlay');
     const body = document.body;
 
-    function toggleSidebar() {
-        body.classList.toggle('sidebar-open');
-        if (body.classList.contains('sidebar-open')) {
-            overlay.style.opacity = '1';
-            overlay.style.pointerEvents = 'auto';
-            body.style.overflow = 'hidden'; // Prevent scrolling the main content
-        } else {
-            overlay.style.opacity = '0';
-            overlay.style.pointerEvents = 'none';
-            body.style.overflow = 'auto';
-        }
-    }
-
-    menuToggle.addEventListener('click', toggleSidebar);
-    overlay.addEventListener('click', toggleSidebar);
-    
-    // Close sidebar on link click (important for mobile UX)
-    document.querySelectorAll('#sidebar a').forEach(link => {
-        link.addEventListener('click', () => {
+    // Only set up toggle logic if menuToggle exists (i.e., user is logged in and needs the menu)
+    if (menuToggle) {
+        function toggleSidebar() {
+            body.classList.toggle('sidebar-open');
             if (body.classList.contains('sidebar-open')) {
-                toggleSidebar();
+                overlay.style.opacity = '1';
+                overlay.style.pointerEvents = 'auto';
+                body.style.overflow = 'hidden'; // Prevent scrolling the main content
+            } else {
+                overlay.style.opacity = '0';
+                overlay.style.pointerEvents = 'none';
+                body.style.overflow = 'auto';
             }
+        }
+
+        menuToggle.addEventListener('click', toggleSidebar);
+        overlay.addEventListener('click', toggleSidebar);
+        
+        // Close sidebar on link click (important for mobile UX)
+        document.querySelectorAll('#sidebar a').forEach(link => {
+            link.addEventListener('click', () => {
+                if (body.classList.contains('sidebar-open')) {
+                    toggleSidebar();
+                }
+            });
         });
-    });
+    }
 
 </script>
 '''
@@ -211,9 +217,7 @@ def render_navbar():
 app.jinja_env.globals['navbar'] = render_navbar
 
 
-# ====================== ROUTES ======================
-
-# --- Authentication Routes ---
+# ====================== REMAINING ROUTES (UNCHANGED) ======================
 @app.route('/')
 def index():
     return redirect('/explore')
@@ -473,14 +477,14 @@ def editor(repo_id):
                 background: transparent;
                 caret-color: white;
                 resize: none;
-                z-index: 2; /* Ensure textarea is above highlighting */
+                z-index: 2;
             }
             #highlighting {
                 pointer-events: none;
                 z-index: 1;
             }
             .prism-twilight {
-                background-color: #111827 !important; /* gray-900 */
+                background-color: #111827 !important;
                 border-radius: 0;
             }
         </style>
@@ -634,11 +638,9 @@ def editor(repo_id):
     </html>
     ''', repo=repo, current_file=current_file, current_user=current_user, file_content_json=file_content_json, file_content_safe=file_content_safe, prism_language=prism_language)
 
-# --- Remaining Backend Routes (same as V6) ---
 @app.route('/file/save', methods=['POST'])
 @login_required
 def save_file():
-    # ... (same logic as V6)
     try:
         data = request.get_json()
         file_id = data.get('file_id')
@@ -657,7 +659,6 @@ def save_file():
 @app.route('/file/delete/<int:file_id>', methods=['POST'])
 @login_required
 def delete_file(file_id):
-    # ... (same logic as V6)
     f = CodeFile.query.get_or_404(file_id)
     if f.repo.owner_id != current_user.id:
         abort(403)
@@ -671,7 +672,6 @@ def delete_file(file_id):
 @app.route('/file/new', methods=['POST'])
 @login_required
 def new_file():
-    # ... (same logic as V6)
     repo = Repository.query.get_or_404(request.form['repo_id'])
     if repo.owner_id != current_user.id:
         abort(403)
@@ -689,7 +689,6 @@ def new_file():
 
 @app.route('/raw/<int:file_id>')
 def raw(file_id):
-    # ... (same logic as V6)
     f = CodeFile.query.get_or_404(file_id)
     if not f.repo.is_public and (not current_user.is_authenticated or f.repo.owner_id != current_user.id):
         abort(403)
@@ -762,6 +761,6 @@ def settings():
 
 # ====================== MAIN ======================
 if __name__ == '__main__':
-    print("CodeVault PRO v7 is running! (Mobile Hamburger Menu & UI polish applied)")
+    print("CodeVault PRO v7.1 is running! (Mobile Navigation Fixed)")
     print("Visit: http://127.0.0.1:5000")
     app.run(host='0.0.0.0', port=5000, debug=False)
