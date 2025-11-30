@@ -86,37 +86,35 @@ with app.app_context():
 
 # ====================== NAVBAR ======================
 app.jinja_env.globals['navbar'] = '''
-<nav class="bg-gray-900 border-b border-gray-800 px-6 py-3 flex justify-between items-center sticky top-0 z-50 shadow-md">
-  <a href="/" class="flex items-center gap-2 text-2xl font-bold text-indigo-400">
-    <i data-lucide="code" class="w-7 h-7"></i>
-    CodeVault
-  </a>
-  <div class="flex items-center gap-6">
-    <a href="/explore" class="flex items-center gap-1 text-gray-300 hover:text-white font-medium transition-colors duration-200">
-      <i data-lucide="compass" class="w-5 h-5"></i>
-      Explore
-    </a>
-    {% if current_user.is_authenticated %}
-      <a href="/dashboard" class="flex items-center gap-1 text-gray-300 hover:text-white font-medium transition-colors duration-200">
-        <i data-lucide="folder" class="w-5 h-5"></i>
-        My Code
-      </a>
-      <a href="/settings" class="flex items-center gap-1 text-gray-300 hover:text-white font-medium transition-colors duration-200">
-        <i data-lucide="settings" class="w-5 h-5"></i>
-        Settings
-      </a>
-      <a href="/logout" class="flex items-center gap-1 text-red-400 hover:text-red-300 font-medium transition-colors duration-200">
-        <i data-lucide="log-out" class="w-5 h-5"></i>
-        Logout
-      </a>
-    {% else %}
-      <a href="/login" class="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 px-5 py-2 rounded-lg font-bold transition-colors duration-200">
-        <i data-lucide="log-in" class="w-5 h-5"></i>
-        Login
-      </a>
-    {% endif %}
-  </div>
+<nav class="bg-gray-900 border-b border-gray-800 px-4 py-3 flex justify-between items-center sticky top-0 z-50">
+    <div class="flex items-center gap-3">
+        <!-- CodeVault Logo Icon -->
+        <i data-lucide="code" class="w-8 h-8 text-indigo-400"></i>
+        <a href="/" class="text-2xl font-bold text-indigo-400 hover:text-indigo-300">CodeVault</a>
+    </div>
+    <div class="flex items-center gap-6">
+        <a href="/explore" class="text-gray-300 hover:text-white flex items-center gap-1">
+            <i data-lucide="compass" class="w-5 h-5"></i> Explore
+        </a>
+        {% if current_user.is_authenticated %}
+        <a href="/dashboard" class="text-gray-300 hover:text-white flex items-center gap-1">
+            <i data-lucide="folder" class="w-5 h-5"></i> My Code
+        </a>
+        <a href="/settings" class="text-gray-300 hover:text-white flex items-center gap-1">
+            <i data-lucide="settings" class="w-5 h-5"></i> Settings
+        </a>
+        <a href="/logout" class="text-red-400 hover:text-red-300 flex items-center gap-1">
+            <i data-lucide="log-out" class="w-5 h-5"></i> Logout
+        </a>
+        {% else %}
+        <a href="/login" class="bg-indigo-600 hover:bg-indigo-700 px-6 py-2 rounded-lg font-bold flex items-center gap-1">
+            <i data-lucide="log-in" class="w-5 h-5"></i> Login
+        </a>
+        {% endif %}
+    </div>
 </nav>
+<script src="https://cdn.jsdelivr.net/npm/lucide/dist/lucide.min.js"></script>
+<script>lucide.createIcons();</script>
 '''
 
 # ====================== ROUTES ======================
