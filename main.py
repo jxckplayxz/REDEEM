@@ -84,11 +84,11 @@ with app.app_context():
         db.session.add(demo)
         db.session.commit()
 
-# ====================== NAVBAR ======================
+# ====================== NAVBAR (NO CHANGE NEEDED HERE) ======================
+# The CSS for sticky/fixed navbar is correct here.
 app.jinja_env.globals['navbar'] = '''
 <nav class="bg-gray-900 border-b border-gray-800 px-4 py-3 flex justify-between items-center sticky top-0 z-50">
     <div class="flex items-center gap-3">
-        <!-- CodeVault Logo -->
         <i data-lucide="code" class="w-8 h-8 text-indigo-400"></i>
         <a href="/" class="text-2xl font-bold text-indigo-400 hover:text-indigo-300">CodeVault</a>
     </div>
@@ -164,8 +164,7 @@ def explore():
     <head><title>Explore</title><script src="https://cdn.tailwindcss.com"></script></head>
     <body class="h-full flex flex-col">
         {{ navbar|safe }}
-        <div class="p-6 max-w-6xl mx-auto">
-            <h1 class="text-4xl font-bold mb-8">Public Repositories</h1>
+        <div class="p-6 max-w-6xl mx-auto flex-1 w-full"> <h1 class="text-4xl font-bold mb-8">Public Repositories</h1>
             <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {% for r in repos %}
                 <a href="/repo/{{ r.id }}" class="block bg-gray-800 p-6 rounded-xl border border-gray-700 hover:border-indigo-500 transition">
@@ -193,8 +192,7 @@ def dashboard():
     <head><title>Dashboard</title><script src="https://cdn.tailwindcss.com"></script></head>
     <body class="h-full flex flex-col">
         {{ navbar|safe }}
-        <div class="p-6 max-w-6xl mx-auto">
-            <a href="/repo/new" class="inline-block bg-indigo-600 hover:bg-indigo-700 px-8 py-4 rounded-xl font-bold text-xl mb-8">+ New Repository</a>
+        <div class="p-6 max-w-6xl mx-auto flex-1 w-full"> <a href="/repo/new" class="inline-block bg-indigo-600 hover:bg-indigo-700 px-8 py-4 rounded-xl font-bold text-xl mb-8">+ New Repository</a>
             <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {% for r in repos %}
                 <a href="/repo/{{ r.id }}" class="block bg-gray-800 p-8 rounded-xl border border-gray-700 hover:border-indigo-500 transition">
@@ -212,7 +210,7 @@ def dashboard():
     </html>
     ''', repos=repos, current_user=current_user)
 
-# ====================== NEW REPO ======================
+# ====================== NEW REPO (FIXED) ======================
 @app.route('/repo/new', methods=['GET', 'POST'])
 @login_required
 def new_repo():
@@ -232,22 +230,24 @@ def new_repo():
     <!DOCTYPE html>
     <html class="h-full bg-gray-900 text-white">
     <head><title>New Repo</title><script src="https://cdn.tailwindcss.com"></script></head>
-    <body class="flex items-center justify-center p-6">
+    <body class="h-full flex flex-col">
         {{ navbar|safe }}
-        <form method="post" class="bg-gray-800 p-10 rounded-2xl w-full max-w-lg space-y-6">
-            <h1 class="text-4xl font-bold">New Repository</h1>
-            <input name="name" placeholder="Repository Name" required class="w-full px-6 py-4 bg-gray-700 rounded-xl">
-            <textarea name="description" placeholder="Description (optional)" class="w-full px-6 py-4 bg-gray-700 rounded-xl h-32"></textarea>
-            <label class="flex items-center gap-3 text-lg"><input type="checkbox" name="public" checked class="w-6 h-6"> Public</label>
-            <button class="w-full py-4 bg-indigo-600 hover:bg-indigo-700 font-bold rounded-xl text-xl">Create Repository</button>
-        </form>
+        <div class="flex-1 flex items-center justify-center p-6">
+            <form method="post" class="bg-gray-800 p-10 rounded-2xl w-full max-w-lg space-y-6">
+                <h1 class="text-4xl font-bold">New Repository</h1>
+                <input name="name" placeholder="Repository Name" required class="w-full px-6 py-4 bg-gray-700 rounded-xl">
+                <textarea name="description" placeholder="Description (optional)" class="w-full px-6 py-4 bg-gray-700 rounded-xl h-32"></textarea>
+                <label class="flex items-center gap-3 text-lg"><input type="checkbox" name="public" checked class="w-6 h-6"> Public</label>
+                <button class="w-full py-4 bg-indigo-600 hover:bg-indigo-700 font-bold rounded-xl text-xl">Create Repository</button>
+            </form>
+        </div>
         <script src="https://cdn.jsdelivr.net/npm/lucide/dist/lucide.min.js"></script>
         <script>lucide.createIcons();</script>
     </body>
     </html>
     ''', current_user=current_user)
 
-# ====================== REPO EDITOR ======================
+# ====================== REPO EDITOR (NO CHANGE NEEDED HERE) ======================
 @app.route('/repo/<int:repo_id>')
 @login_required
 def editor(repo_id):
@@ -367,7 +367,7 @@ def raw(repo_id, file_id):
         }
     )
 
-# ====================== SETTINGS ======================
+# ====================== SETTINGS (NO CHANGE NEEDED HERE) ======================
 @app.route('/settings', methods=['GET', 'POST'])
 @login_required
 def settings():
@@ -389,8 +389,7 @@ def settings():
     </head>
     <body class="h-full flex flex-col">
         {{ navbar|safe }}
-        <div class="p-10 max-w-2xl mx-auto">
-            <h1 class="text-4xl font-bold mb-10">Settings</h1>
+        <div class="p-10 max-w-2xl mx-auto flex-1 w-full"> <h1 class="text-4xl font-bold mb-10">Settings</h1>
             {% with messages = get_flashed_messages() %}
                 {% if messages %}
                     <div class="mb-6 p-4 rounded-xl bg-green-800 text-green-200">
