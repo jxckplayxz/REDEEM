@@ -1,5 +1,7 @@
 # ================================================
-# CODEVAULT PRO v8 – ADMIN CONTROLS & NOTIFICATIONS
+# CODEVAULT PRO v8 – FULL STACK APPLICATION
+# Features: Responsive UI (Tailwind), Database (SQLite/SQLAlchemy),
+# Authentication, Live Editor (Prism.js), Admin Controls, User Notifications.
 # ================================================
 
 from flask import Flask, render_template_string, request, redirect, url_for, flash, abort, Response
@@ -24,7 +26,7 @@ db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
-# ====================== MODELS (UPDATED) ======================
+# ====================== MODELS ======================
 class User(UserMixin, db.Model):
     __tablename__ = 'user'
     id = db.Column(db.Integer, primary_key=True)
@@ -35,7 +37,7 @@ class User(UserMixin, db.Model):
     dark_mode = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
-    # --- NEW ADMIN FIELDS ---
+    # --- ADMIN FIELDS ---
     is_admin = db.Column(db.Boolean, default=False)
     admin_note = db.Column(db.Text, nullable=True) # Message for the user to read
 
@@ -60,7 +62,7 @@ class CodeFile(db.Model):
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-# ====================== ADMIN DECORATOR ======================
+# ====================== UTILITY / ADMIN DECORATORS ======================
 def admin_required(f):
     def wrapper(*args, **kwargs):
         if not current_user.is_authenticated or not current_user.is_admin:
@@ -69,16 +71,13 @@ def admin_required(f):
     wrapper.__name__ = f.__name__
     return wrapper
 
-# ====================== UTILITY FUNCTIONS (UNCHANGED) ======================
-# ... (fix_database, get_prism_language, get_file_icon remain the same) ...
 def fix_database():
     if not os.path.exists('codevault.db'):
         return
-    # Check if new columns exist and add them if not (manual migration for simplicity)
+    # Check if new columns exist and add them (manual migration)
     conn = sqlite3.connect('codevault.db')
     cursor = conn.cursor()
     try:
-        # Check for is_admin column
         cursor.execute("PRAGMA table_info(user)")
         columns = [col[1] for col in cursor.fetchall()]
         if 'is_admin' not in columns:
@@ -116,7 +115,7 @@ def get_file_icon(filename):
 app.jinja_env.globals['get_file_icon'] = get_file_icon
 
 
-# ====================== STARTUP (UPDATE) ======================
+# ====================== STARTUP ======================
 with app.app_context():
     db.create_all()
     fix_database() # Applies migration logic
@@ -130,7 +129,7 @@ with app.app_context():
         print(f"User '{first_user.username}' promoted to Admin.")
 
 
-# ====================== NAVBAR TEMPLATE (UPDATED FOR ADMIN LINK) ======================
+# ====================== NAVBAR TEMPLATE ======================
 NAVBAR_TEMPLATE = '''
 <style>
     .sidebar-transition { transition: transform 0.3s ease-in-out; transform: translateX(-100%); }
@@ -220,7 +219,7 @@ NAVBAR_TEMPLATE = '''
 <script>
     lucide.createIcons();
     
-    // Mobile Sidebar Logic (Uses the same logic as v7.1)
+    // Mobile Sidebar Logic
     const menuToggle = document.getElementById('menu-toggle');
     const sidebar = document.getElementById('sidebar');
     const overlay = document.getElementById('sidebar-overlay');
@@ -260,7 +259,7 @@ def render_navbar():
 
 app.jinja_env.globals['navbar'] = render_navbar
 
-# ====================== ADMIN ROUTES (NEW) ======================
+# ====================== ADMIN ROUTES ======================
 
 @app.route('/admin')
 @admin_required
@@ -377,7 +376,6 @@ def admin_delete_user(user_id):
         flash('You cannot delete your own admin account!', 'error')
         return redirect(url_for('admin_panel'))
     
-    # Cascade delete for repositories and files is handled by SQLAlchemy relationship
     db.session.delete(user_to_delete)
     db.session.commit()
     flash(f'User "{user_to_delete.username}" and all their data have been deleted.', 'success')
@@ -520,20 +518,23 @@ def admin_edit_repo(repo_id):
 
 @app.before_request
 def check_admin_note():
-    # Only run if user is authenticated and navigating to a core page
-    if current_user.is_authenticated and current_user.admin_note:
-        # Flash the note message
+    # Flashes and clears the admin note before rendering any user page (except /login)
+    if current_user.is_authenticated and current_user.admin_note and request.endpoint not in ['login']:
         flash(Markup(f"🛑 **ADMIN NOTE:** {current_user.admin_note}"), 'admin_note')
-        # Clear the note after flashing
         current_user.admin_note = None
         db.session.commit()
+
+@app.route('/')
+def index():
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+    return redirect(url_for('login'))
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
         return redirect('/dashboard')
     
-    # ... (login logic remains the same) ...
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
@@ -592,13 +593,11 @@ def login():
             </h1>
             {% with messages = get_flashed_messages() %}
                 {% if messages %}
-                    {% for category, message in get_flashed_messages(with_categories=true) %}
-                        {% if category != 'admin_note' %}
-                            <div class="mb-4 sm:mb-6 p-4 rounded-xl bg-red-800 text-red-200 flex items-center gap-2 animate-bounce-in">
-                                <i data-lucide="alert-triangle" class="w-5 h-5"></i>
-                                <p class="text-sm">{{ message }}</p>
-                            </div>
-                        {% endif %}
+                    {% for message in messages %}
+                        <div class="mb-4 sm:mb-6 p-4 rounded-xl bg-red-800 text-red-200 flex items-center gap-2 animate-bounce-in">
+                            <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+                            <p class="text-sm">{{ message }}</p>
+                        </div>
                     {% endfor %}
                 {% endif %}
             {% endwith %}
@@ -671,19 +670,6 @@ def dashboard():
     </html>
     ''', repos=repos, current_user=current_user)
 
-# --- Remaining Backend Routes (unchanged) ---
-# ... (logout, explore, delete_repo, new_repo, editor, save_file, delete_file, new_file, raw, settings remain the same as v7.1) ...
-
-# To save space, the remaining routes from v7.1 are not fully copied,
-# but they remain structurally the same as the previous response.
-
-@app.route('/logout')
-@login_required
-def logout():
-    logout_user()
-    return redirect('/')
-
-# --- Main Views ---
 @app.route('/explore')
 def explore():
     repos = Repository.query.filter_by(is_public=True).order_by(Repository.created_at.desc()).all()
@@ -1110,6 +1096,11 @@ def settings():
     </html>
     ''', current_user=current_user)
 
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    return redirect('/')
 
 # ====================== MAIN ======================
 if __name__ == '__main__':
