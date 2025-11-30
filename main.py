@@ -1,5 +1,5 @@
 # ================================================
-# CODEVAULT PRO v4 – FULL SINGLE-FILE (FLOATY NAVBAR + ICONS + ANIMATIONS)
+# CODEVAULT PRO v5 – MOBILE FIX, SAVE FIX, SYNTAX HIGHLIGHTING, FILE DELETE
 # ================================================
 
 from flask import Flask, render_template_string, request, redirect, url_for, flash, abort, Response
@@ -10,6 +10,7 @@ from datetime import datetime
 import os
 import sqlite3
 from markupsafe import Markup 
+import json # Used for passing file content to the editor script
 
 # ====================== APP SETUP ======================
 app = Flask(__name__)
@@ -75,30 +76,32 @@ with app.app_context():
     db.create_all()
     fix_database()
 
-# ====================== NAVBAR (Floaty CSS Applied) ======================
+
+# ====================== NAVBAR TEMPLATE (Floaty, Mobile-friendly) ======================
 NAVBAR_TEMPLATE = '''
-<div class="h-20"></div> <nav class="bg-gray-900/90 backdrop-blur-sm border border-gray-800 shadow-xl rounded-xl p-4 flex justify-between items-center fixed top-0 left-0 right-0 z-50 mx-auto mt-4 w-[95%] lg:w-[90%] transition duration-300">
-    <div class="flex items-center gap-3">
-        <i data-lucide="code" class="w-8 h-8 text-indigo-400"></i>
-        <a href="/" class="text-2xl font-bold text-indigo-400 hover:text-indigo-300 transition duration-150">CodeVault</a>
+<div class="h-20"></div> 
+<nav class="bg-gray-900/90 backdrop-blur-sm border border-gray-800 shadow-xl rounded-xl p-4 flex justify-between items-center fixed top-0 left-0 right-0 z-50 mx-auto mt-4 w-[95%] lg:w-[90%] transition duration-300">
+    <div class="flex items-center gap-2 lg:gap-3">
+        <i data-lucide="code" class="w-6 h-6 lg:w-8 lg:h-8 text-indigo-400"></i>
+        <a href="/" class="text-xl lg:text-2xl font-bold text-indigo-400 hover:text-indigo-300 transition duration-150">CodeVault</a>
     </div>
-    <div class="flex items-center gap-6">
-        <a href="/explore" class="text-gray-300 hover:text-white flex items-center gap-1 transition duration-150">
-            <i data-lucide="compass" class="w-5 h-5"></i> Explore
+    <div class="flex items-center gap-3 lg:gap-6">
+        <a href="/explore" class="text-gray-300 hover:text-white flex items-center gap-1 text-sm lg:text-base transition duration-150">
+            <i data-lucide="compass" class="w-4 h-4 lg:w-5 lg:h-5"></i> Explore
         </a>
         {% if current_user.is_authenticated %}
-        <a href="/dashboard" class="text-gray-300 hover:text-white flex items-center gap-1 transition duration-150">
-            <i data-lucide="folder" class="w-5 h-5"></i> My Code
+        <a href="/dashboard" class="text-gray-300 hover:text-white flex items-center gap-1 text-sm lg:text-base transition duration-150">
+            <i data-lucide="folder" class="w-4 h-4 lg:w-5 lg:h-5"></i> My Code
         </a>
-        <a href="/settings" class="text-gray-300 hover:text-white flex items-center gap-1 transition duration-150">
-            <i data-lucide="settings" class="w-5 h-5"></i> Settings
+        <a href="/settings" class="text-gray-300 hover:text-white flex items-center gap-1 text-sm lg:text-base transition duration-150">
+            <i data-lucide="settings" class="w-4 h-4 lg:w-5 lg:h-5"></i> Settings
         </a>
-        <a href="/logout" class="text-red-400 hover:text-red-300 flex items-center gap-1 transition duration-150">
-            <i data-lucide="log-out" class="w-5 h-5"></i> Logout
+        <a href="/logout" class="text-red-400 hover:text-red-300 flex items-center gap-1 text-sm lg:text-base transition duration-150">
+            <i data-lucide="log-out" class="w-4 h-4 lg:w-5 lg:h-5"></i> Logout
         </a>
         {% else %}
-        <a href="/login" class="bg-indigo-600 hover:bg-indigo-700 px-6 py-2 rounded-lg font-bold flex items-center gap-1 transition duration-150 hover:scale-[1.03]">
-            <i data-lucide="log-in" class="w-5 h-5"></i> Login
+        <a href="/login" class="bg-indigo-600 hover:bg-indigo-700 px-3 lg:px-6 py-1 lg:py-2 rounded-lg font-bold flex items-center gap-1 text-sm transition duration-150 hover:scale-[1.03]">
+            <i data-lucide="log-in" class="w-4 h-4"></i> Login
         </a>
         {% endif %}
     </div>
@@ -108,6 +111,7 @@ NAVBAR_TEMPLATE = '''
 '''
 
 def render_navbar():
+    # Pass current_user explicitly to ensure context is available inside the string template
     return Markup(render_template_string(NAVBAR_TEMPLATE, current_user=current_user))
 
 app.jinja_env.globals['navbar'] = render_navbar
@@ -130,6 +134,7 @@ def login():
         user = User.query.filter_by(username=username).first()
         
         if user:
+            # User exists
             if check_password_hash(user.password, password):
                 login_user(user)
                 flash('Login successful!')
@@ -138,6 +143,7 @@ def login():
                 flash('Incorrect password for existing account.')
                 return redirect(url_for('login'))
         else:
+            # New User, auto-register
             if len(username) < 3 or len(password) < 6:
                 flash('Username must be at least 3 characters and password at least 6 characters.')
                 return redirect(url_for('login'))
@@ -159,28 +165,28 @@ def login():
     <html class="h-full bg-gray-900 text-white">
     <head><title>Login/Register - CodeVault</title><meta name="viewport" content="width=device-width, initial-scale=1"><script src="https://cdn.tailwindcss.com"></script></head>
     <body class="h-full flex items-center justify-center p-4">
-        <div class="bg-gray-800 p-10 rounded-2xl w-full max-w-md shadow-2xl">
-            <h1 class="text-5xl font-bold text-center text-indigo-400 mb-8 flex items-center justify-center gap-2">
+        <div class="bg-gray-800 p-6 sm:p-10 rounded-2xl w-full max-w-md shadow-2xl">
+            <h1 class="text-4xl sm:text-5xl font-bold text-center text-indigo-400 mb-6 sm:mb-8 flex items-center justify-center gap-2">
                 <i data-lucide="lock-keyhole" class="w-8 h-8"></i> CodeVault
             </h1>
             {% with messages = get_flashed_messages() %}
                 {% if messages %}
-                    <div class="mb-6 p-4 rounded-xl bg-red-800 text-red-200 flex items-center gap-2">
+                    <div class="mb-4 sm:mb-6 p-4 rounded-xl bg-red-800 text-red-200 flex items-center gap-2">
                         <i data-lucide="alert-triangle" class="w-5 h-5"></i>
                         {% for message in messages %}
-                            <p>{{ message }}</p>
+                            <p class="text-sm">{{ message }}</p>
                         {% endfor %}
                     </div>
                 {% endif %}
             {% endwith %}
-            <form method="post" class="space-y-6">
-                <input name="username" placeholder="Username (3+ chars)" required class="w-full px-6 py-4 bg-gray-700 rounded-xl text-lg">
-                <input name="password" type="password" placeholder="Password (6+ chars)" required class="w-full px-6 py-4 bg-gray-700 rounded-xl text-lg">
-                <button class="w-full py-4 bg-indigo-600 hover:bg-indigo-700 font-bold rounded-xl text-xl flex items-center justify-center gap-2 transition duration-150 hover:scale-[1.03]">
-                    <i data-lucide="log-in" class="w-6 h-6"></i> Login / Register
+            <form method="post" class="space-y-4 sm:space-y-6">
+                <input name="username" placeholder="Username (3+ chars)" required class="w-full px-4 py-3 sm:px-6 sm:py-4 bg-gray-700 rounded-xl text-base sm:text-lg">
+                <input name="password" type="password" placeholder="Password (6+ chars)" required class="w-full px-4 py-3 sm:px-6 sm:py-4 bg-gray-700 rounded-xl text-base sm:text-lg">
+                <button class="w-full py-3 sm:py-4 bg-indigo-600 hover:bg-indigo-700 font-bold rounded-xl text-lg sm:text-xl flex items-center justify-center gap-2 transition duration-150 hover:scale-[1.03]">
+                    <i data-lucide="log-in" class="w-5 h-5"></i> Login / Register
                 </button>
             </form>
-            <p class="text-gray-400 text-sm mt-4 text-center">If the username is new, an account will be automatically created.</p>
+            <p class="text-gray-400 text-xs sm:text-sm mt-4 text-center">If the username is new, an account will be automatically created.</p>
         </div>
         <script src="https://cdn.jsdelivr.net/npm/lucide/dist/lucide.min.js"></script>
         <script>lucide.createIcons();</script>
@@ -203,24 +209,24 @@ def explore():
     <head><title>Explore</title><script src="https://cdn.tailwindcss.com"></script></head>
     <body class="h-full flex flex-col">
         {{ navbar() }}
-        <div class="p-6 max-w-6xl mx-auto flex-1 w-full"> 
-            <h1 class="text-4xl font-bold mb-8 flex items-center gap-3"><i data-lucide="globe" class="w-8 h-8 text-indigo-400"></i> Public Repositories</h1>
-            <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <div class="p-4 sm:p-6 max-w-6xl mx-auto flex-1 w-full"> 
+            <h1 class="text-3xl sm:text-4xl font-bold mb-6 sm:mb-8 flex items-center gap-3"><i data-lucide="globe" class="w-6 h-6 sm:w-8 sm:h-8 text-indigo-400"></i> Public Repositories</h1>
+            <div class="grid gap-4 sm:gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {% for r in repos %}
-                <a href="/repo/{{ r.id }}" class="block bg-gray-800 p-6 rounded-xl border border-gray-700 hover:border-indigo-500 transition duration-200 hover:shadow-indigo-500/30 hover:shadow-lg hover:scale-[1.02]">
-                    <div class="flex items-center gap-3 mb-2">
-                        <i data-lucide="git-fork" class="w-6 h-6 text-indigo-400"></i>
-                        <h3 class="text-2xl font-bold">{{ r.name }}</h3>
+                <a href="/repo/{{ r.id }}" class="block bg-gray-800 p-4 sm:p-6 rounded-xl border border-gray-700 hover:border-indigo-500 transition duration-200 hover:shadow-indigo-500/30 hover:shadow-lg hover:scale-[1.02]">
+                    <div class="flex items-center gap-2 sm:gap-3 mb-2">
+                        <i data-lucide="git-fork" class="w-5 h-5 sm:w-6 sm:h-6 text-indigo-400"></i>
+                        <h3 class="text-xl sm:text-2xl font-bold">{{ r.name }}</h3>
                     </div>
-                    <p class="text-gray-400 text-sm mb-4">{{ r.description or 'No description' }}</p>
-                    <div class="text-sm text-gray-500 flex items-center gap-4">
+                    <p class="text-gray-400 text-xs sm:text-sm mb-3 sm:mb-4">{{ r.description or 'No description' }}</p>
+                    <div class="text-xs sm:text-sm text-gray-500 flex items-center gap-3 sm:gap-4">
                         <span class="flex items-center gap-1"><i data-lucide="user" class="w-4 h-4"></i> @{{ r.owner.username }}</span> 
                         <span class="flex items-center gap-1"><i data-lucide="file-text" class="w-4 h-4"></i> {{ r.files|length }} files</span>
                     </div>
                 </a>
                 {% endfor %}
             </div>
-            {% if not repos %}<p class="text-center text-3xl text-gray-500 mt-20 flex items-center justify-center gap-3"><i data-lucide="folder-open" class="w-8 h-8"></i> No public repos yet!</p>{% endif %}
+            {% if not repos %}<p class="text-center text-2xl sm:text-3xl text-gray-500 mt-10 sm:mt-20 flex items-center justify-center gap-3"><i data-lucide="folder-open" class="w-6 h-6 sm:w-8 sm:h-8"></i> No public repos yet!</p>{% endif %}
         </div>
         <script src="https://cdn.jsdelivr.net/npm/lucide/dist/lucide.min.js"></script>
         <script>lucide.createIcons();</script>
@@ -238,27 +244,27 @@ def dashboard():
     <head><title>Dashboard</title><script src="https://cdn.tailwindcss.com"></script></head>
     <body class="h-full flex flex-col">
         {{ navbar() }}
-        <div class="p-6 max-w-6xl mx-auto flex-1 w-full">
-            <a href="/repo/new" class="inline-block bg-indigo-600 hover:bg-indigo-700 px-8 py-4 rounded-xl font-bold text-xl mb-8 flex items-center gap-2 transition duration-150 hover:scale-[1.03]">
-                <i data-lucide="plus-square" class="w-6 h-6"></i> New Repository
+        <div class="p-4 sm:p-6 max-w-6xl mx-auto flex-1 w-full">
+            <a href="/repo/new" class="inline-block bg-indigo-600 hover:bg-indigo-700 px-6 sm:px-8 py-3 sm:py-4 rounded-xl font-bold text-lg sm:text-xl mb-6 sm:mb-8 flex items-center gap-2 transition duration-150 hover:scale-[1.03]">
+                <i data-lucide="plus-square" class="w-5 h-5 sm:w-6 sm:h-6"></i> New Repository
             </a>
-            <h1 class="text-4xl font-bold mb-8 flex items-center gap-3"><i data-lucide="folder-kanban" class="w-8 h-8 text-indigo-400"></i> My Repositories</h1>
-            <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            <h1 class="text-3xl sm:text-4xl font-bold mb-6 sm:mb-8 flex items-center gap-3"><i data-lucide="folder-kanban" class="w-6 h-6 sm:w-8 sm:h-8 text-indigo-400"></i> My Repositories</h1>
+            <div class="grid gap-4 sm:gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {% for r in repos %}
-                <a href="/repo/{{ r.id }}" class="block bg-gray-800 p-8 rounded-xl border border-gray-700 hover:border-indigo-500 transition duration-200 hover:shadow-indigo-500/30 hover:shadow-lg hover:scale-[1.02]">
+                <a href="/repo/{{ r.id }}" class="block bg-gray-800 p-4 sm:p-8 rounded-xl border border-gray-700 hover:border-indigo-500 transition duration-200 hover:shadow-indigo-500/30 hover:shadow-lg hover:scale-[1.02]">
                     <div class="flex items-center justify-between mb-2">
-                        <h3 class="text-2xl font-bold">{{ r.name }}</h3>
-                        <i data-lucide="{% if r.is_public %}globe{% else %}lock{% endif %}" class="w-5 h-5 text-gray-400"></i>
+                        <h3 class="text-xl sm:text-2xl font-bold">{{ r.name }}</h3>
+                        <i data-lucide="{% if r.is_public %}globe{% else %}lock{% endif %}" class="w-4 h-4 sm:w-5 sm:h-5 text-gray-400"></i>
                     </div>
-                    <p class="text-gray-400 text-sm">{{ r.description or 'No description' }}</p>
-                    <div class="text-sm text-gray-500 mt-4 flex items-center gap-4">
+                    <p class="text-gray-400 text-xs sm:text-sm">{{ r.description or 'No description' }}</p>
+                    <div class="text-xs sm:text-sm text-gray-500 mt-3 sm:mt-4 flex items-center gap-3 sm:gap-4">
                         <span class="flex items-center gap-1"><i data-lucide="file-text" class="w-4 h-4"></i> {{ r.files|length }} files</span>
                         <span>• {% if r.is_public %}Public{% else %}Private{% endif %}</span>
                     </div>
                 </a>
                 {% endfor %}
             </div>
-            {% if not repos %}<p class="text-center text-3xl text-gray-500 mt-20 flex items-center justify-center gap-3"><i data-lucide="folder-open" class="w-8 h-8"></i> Get started by creating your first repository!</p>{% endif %}
+            {% if not repos %}<p class="text-center text-2xl sm:text-3xl text-gray-500 mt-10 sm:mt-20 flex items-center justify-center gap-3"><i data-lucide="folder-open" class="w-6 h-6 sm:w-8 sm:h-8"></i> Get started by creating your first repository!</p>{% endif %}
         </div>
         <script src="https://cdn.jsdelivr.net/npm/lucide/dist/lucide.min.js"></script>
         <script>lucide.createIcons();</script>
@@ -288,14 +294,14 @@ def new_repo():
     <head><title>New Repo</title><script src="https://cdn.tailwindcss.com"></script></head>
     <body class="h-full flex flex-col">
         {{ navbar() }}
-        <div class="flex-1 flex items-center justify-center p-6">
-            <form method="post" class="bg-gray-800 p-10 rounded-2xl w-full max-w-lg space-y-6 shadow-xl">
-                <h1 class="text-4xl font-bold flex items-center gap-3"><i data-lucide="plus-square" class="w-8 h-8 text-indigo-400"></i> New Repository</h1>
-                <input name="name" placeholder="Repository Name" required class="w-full px-6 py-4 bg-gray-700 rounded-xl">
-                <textarea name="description" placeholder="Description (optional)" class="w-full px-6 py-4 bg-gray-700 rounded-xl h-32"></textarea>
-                <label class="flex items-center gap-3 text-lg"><input type="checkbox" name="public" checked class="w-6 h-6"> <i data-lucide="globe" class="w-5 h-5"></i> Public</label>
-                <button class="w-full py-4 bg-indigo-600 hover:bg-indigo-700 font-bold rounded-xl text-xl flex items-center justify-center gap-2 transition duration-150 hover:scale-[1.02]">
-                    <i data-lucide="check-circle" class="w-6 h-6"></i> Create Repository
+        <div class="flex-1 flex items-center justify-center p-4 sm:p-6">
+            <form method="post" class="bg-gray-800 p-6 sm:p-10 rounded-2xl w-full max-w-lg space-y-4 sm:space-y-6 shadow-xl">
+                <h1 class="text-3xl sm:text-4xl font-bold flex items-center gap-3"><i data-lucide="plus-square" class="w-6 h-6 sm:w-8 sm:h-8 text-indigo-400"></i> New Repository</h1>
+                <input name="name" placeholder="Repository Name" required class="w-full px-4 py-3 sm:px-6 sm:py-4 bg-gray-700 rounded-xl">
+                <textarea name="description" placeholder="Description (optional)" class="w-full px-4 py-3 sm:px-6 sm:py-4 bg-gray-700 rounded-xl h-24 sm:h-32"></textarea>
+                <label class="flex items-center gap-3 text-base sm:text-lg"><input type="checkbox" name="public" checked class="w-5 h-5 sm:w-6 sm:h-6"> <i data-lucide="globe" class="w-4 h-4 sm:w-5 sm:h-5"></i> Public</label>
+                <button class="w-full py-3 sm:py-4 bg-indigo-600 hover:bg-indigo-700 font-bold rounded-xl text-lg sm:text-xl flex items-center justify-center gap-2 transition duration-150 hover:scale-[1.02]">
+                    <i data-lucide="check-circle" class="w-5 h-5 sm:w-6 sm:h-6"></i> Create Repository
                 </button>
             </form>
         </div>
@@ -305,7 +311,7 @@ def new_repo():
     </html>
     ''', current_user=current_user)
 
-# ====================== REPO EDITOR ======================
+# ====================== REPO EDITOR (SAVE FIX, MOBILE, HIGHLIGHTING, DELETE) ======================
 @app.route('/repo/<int:repo_id>')
 @login_required
 def editor(repo_id):
@@ -314,63 +320,166 @@ def editor(repo_id):
         abort(403)
     file_id = request.args.get('file', type=int)
     current_file = CodeFile.query.get(file_id) if file_id else (repo.files[0] if repo.files else None)
+    
+    # We need to correctly escape the content for the textarea and JSON
+    file_content_json = json.dumps(current_file.content) if current_file else '""'
+    file_content_safe = current_file.content if current_file else ''
+
     return render_template_string('''
     <!DOCTYPE html>
     <html class="h-full bg-gray-900 text-white">
-    <head><title>{{ repo.name }} - CodeVault</title><meta name="viewport" content="width=device-width, initial-scale=1"><script src="https://cdn.tailwindcss.com"></script></head>
+    <head>
+        <title>{{ repo.name }} - CodeVault</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/themes/prism-twilight.min.css" rel="stylesheet" />
+        <style>
+            .code-editor-container {
+                position: relative;
+                font-family: monospace;
+                font-size: 14px;
+                line-height: 1.5;
+            }
+            #code, #highlighting {
+                padding: 1rem;
+                border: 0;
+                margin: 0;
+                box-sizing: border-box;
+                white-space: pre-wrap;
+                word-wrap: break-word;
+            }
+            #code {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                color: transparent;
+                background: transparent;
+                caret-color: white;
+                resize: none;
+            }
+            #highlighting {
+                pointer-events: none;
+                z-index: 1;
+            }
+            /* Prism style override to fit the dark theme */
+            .prism-twilight {
+                background-color: #111827 !important; /* gray-900 */
+                border-radius: 0;
+            }
+        </style>
+    </head>
     <body class="h-full flex flex-col">
         {{ navbar() }}
         <div class="flex-1 flex flex-col lg:flex-row">
-            <div class="w-full lg:w-80 bg-gray-800 border-r border-gray-700 p-6 overflow-y-auto">
-                <h2 class="text-2xl font-bold mb-6 flex items-center gap-2"><i data-lucide="folder-tree" class="w-6 h-6 text-indigo-400"></i> {{ repo.name }}</h2>
+            <div class="w-full lg:w-80 bg-gray-800 border-r border-gray-700 p-4 sm:p-6 overflow-y-auto">
+                <h2 class="text-xl sm:text-2xl font-bold mb-4 sm:mb-6 flex items-center gap-2"><i data-lucide="folder-tree" class="w-5 h-5 sm:w-6 sm:h-6 text-indigo-400"></i> {{ repo.name }}</h2>
                 <div class="space-y-3">
                     {% for f in repo.files %}
-                    <a href="/repo/{{ repo.id }}?file={{ f.id }}" class="block p-4 rounded-lg font-medium flex items-center gap-3 transition duration-150 {% if f.id == (current_file.id if current_file else 0) %}bg-indigo-600 text-white shadow-md{% else %}bg-gray-700 hover:bg-gray-600 hover:shadow-sm{% endif %}">
+                    <a href="/repo/{{ repo.id }}?file={{ f.id }}" class="block p-3 rounded-lg font-medium flex items-center gap-3 transition duration-150 {% if f.id == (current_file.id if current_file else 0) %}bg-indigo-600 text-white shadow-md{% else %}bg-gray-700 hover:bg-gray-600 hover:shadow-sm{% endif %}">
                         <i data-lucide="file-text" class="w-5 h-5"></i>
-                        {{ f.name }}
+                        <span class="truncate">{{ f.name }}</span>
                     </a>
                     {% endfor %}
-                    <form action="/file/new" method="post" class="mt-8">
+                    
+                    <form action="/file/new" method="post" class="mt-6 sm:mt-8">
                         <input type="hidden" name="repo_id" value="{{ repo.id }}">
                         <div class="flex gap-2">
-                            <input name="name" placeholder="new-file.txt" required class="flex-1 px-4 py-3 bg-gray-700 rounded-l-lg">
-                            <button class="px-6 bg-indigo-600 hover:bg-indigo-700 rounded-r-lg font-bold transition duration-150 hover:scale-[1.05]"><i data-lucide="file-plus" class="w-5 h-5"></i></button>
+                            <input name="name" placeholder="new-file.txt" required class="flex-1 px-3 py-2 bg-gray-700 rounded-l-lg text-sm">
+                            <button class="px-4 bg-indigo-600 hover:bg-indigo-700 rounded-r-lg font-bold transition duration-150 hover:scale-[1.05]"><i data-lucide="file-plus" class="w-5 h-5"></i></button>
                         </div>
                     </form>
                 </div>
             </div>
             <div class="flex-1 flex flex-col">
                 {% if current_file %}
-                <div class="p-5 bg-gray-800 border-b border-gray-700 flex justify-between items-center">
-                    <h3 class="text-2xl font-mono font-bold flex items-center gap-2"><i data-lucide="code" class="w-6 h-6 text-purple-400"></i> {{ current_file.name }}</h3>
-                    <div class="flex items-center gap-4">
-                        <button onclick="copyRaw()" class="px-5 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg font-medium flex items-center gap-2 transition duration-150 hover:scale-[1.03]">
-                            <i data-lucide="copy" class="w-5 h-5"></i> Copy Raw Link
+                <div class="p-3 sm:p-5 bg-gray-800 border-b border-gray-700 flex justify-between items-center flex-wrap gap-2">
+                    <h3 class="text-xl sm:text-2xl font-mono font-bold flex items-center gap-2"><i data-lucide="code" class="w-5 h-5 sm:w-6 sm:h-6 text-purple-400"></i> {{ current_file.name }}</h3>
+                    <div class="flex items-center gap-2 sm:gap-4">
+                        <form method="POST" action="/file/delete/{{ current_file.id }}" onsubmit="return confirm('Are you sure you want to delete {{ current_file.name }}?');">
+                            <button type="submit" class="px-3 sm:px-5 py-2 bg-red-600 hover:bg-red-700 rounded-lg font-medium text-sm flex items-center gap-2 transition duration-150 hover:scale-[1.03]">
+                                <i data-lucide="trash-2" class="w-4 h-4 sm:w-5 sm:h-5"></i> Delete
+                            </button>
+                        </form>
+                        <button onclick="copyRaw()" class="px-3 sm:px-5 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg font-medium text-sm flex items-center gap-2 transition duration-150 hover:scale-[1.03]">
+                            <i data-lucide="copy" class="w-4 h-4 sm:w-5 sm:h-5"></i> Raw Link
                         </button>
-                        <span id="status" class="text-green-400 font-medium flex items-center gap-1"><i data-lucide="check" class="w-4 h-4"></i> Saved</span>
+                        <span id="status" class="text-green-400 font-medium text-sm flex items-center gap-1"><i data-lucide="check" class="w-4 h-4"></i> Saved</span>
                     </div>
                 </div>
-                <textarea id="code" class="flex-1 p-6 font-mono text-sm bg-gray-900 outline-none" spellcheck="false">{{ current_file.content }}</textarea>
+                
+                <div class="flex-1 code-editor-container bg-gray-900">
+                    <pre id="highlighting" class="language-clike"><code class="language-clike"></code></pre>
+                    <textarea id="code" class="outline-none" spellcheck="false">{{ file_content_safe }}</textarea>
+                </div>
+
+                <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/prism.min.js"></script>
+                <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/components/prism-clike.min.js"></script>
+                <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/components/prism-javascript.min.js"></script>
                 <script>
+                    // Get elements
+                    const codeEl = document.getElementById('code');
+                    const statusEl = document.getElementById('status');
+                    const highlightingCodeEl = document.querySelector('#highlighting code');
                     const autoSave = {{ 'true' if current_user.auto_save else 'false' }};
                     let timer;
-                    const statusEl = document.getElementById('status');
-                    document.getElementById('code').addEventListener('input', function() {
+
+                    // Initial setup for highlighting
+                    function updateHighlight() {
+                        const content = codeEl.value;
+                        // Use Prism.highlightElement to re-render the code
+                        highlightingCodeEl.textContent = content;
+                        Prism.highlightElement(highlightingCodeEl);
+                        
+                        // Sync scrolling
+                        document.getElementById('highlighting').scrollTop = codeEl.scrollTop;
+                        document.getElementById('highlighting').scrollLeft = codeEl.scrollLeft;
+                    }
+                    
+                    // Initial content load
+                    codeEl.value = JSON.parse({{ file_content_json }});
+                    updateHighlight();
+
+                    // Event listeners
+                    codeEl.addEventListener('input', function() {
+                        updateHighlight();
                         if (!autoSave) return;
+
                         statusEl.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> saving...';
                         lucide.createIcons();
                         clearTimeout(timer);
+                        
                         timer = setTimeout(() => {
+                            // Use a more robust fetch request
                             fetch('/file/save', {
                                 method: 'POST',
-                                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                                body: 'file_id={{ current_file.id }}&content=' + encodeURIComponent(this.value)
-                            }).then(() => {
-                                statusEl.innerHTML = '<i data-lucide="check" class="w-4 h-4"></i> saved';
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({
+                                    file_id: {{ current_file.id }},
+                                    content: this.value
+                                })
+                            })
+                            .then(response => {
+                                if (response.ok) {
+                                    statusEl.innerHTML = '<i data-lucide="check" class="w-4 h-4"></i> saved';
+                                } else {
+                                    statusEl.innerHTML = '<i data-lucide="alert-triangle" class="w-4 h-4"></i> save failed';
+                                }
                                 lucide.createIcons();
+                            })
+                            .catch(error => {
+                                statusEl.innerHTML = '<i data-lucide="alert-triangle" class="w-4 h-4"></i> error';
+                                lucide.createIcons();
+                                console.error('Save error:', error);
                             });
                         }, 1000);
                     });
+
+                    // Sync scroll on textarea and pre element
+                    codeEl.addEventListener('scroll', updateHighlight);
+
+
                     function copyRaw() {
                         navigator.clipboard.writeText(location.origin + '/raw/{{ repo.id }}/{{ current_file.id }}');
                         alert('Raw link copied to clipboard!');
@@ -388,18 +497,43 @@ def editor(repo_id):
         <script>lucide.createIcons();</script>
     </body>
     </html>
-    ''', repo=repo, current_file=current_file, current_user=current_user)
+    ''', repo=repo, current_file=current_file, current_user=current_user, file_content_json=file_content_json, file_content_safe=file_content_safe)
 
-# ====================== SAVE FILE ======================
+# ====================== SAVE FILE (FIXED) ======================
 @app.route('/file/save', methods=['POST'])
 @login_required
 def save_file():
-    f = CodeFile.query.get_or_404(request.form['file_id'])
-    if f.repo.owner_id != current_user.id:
+    # Expecting JSON data now
+    try:
+        data = request.get_json()
+        file_id = data.get('file_id')
+        content = data.get('content')
+    except:
+        return 'Invalid JSON', 400
+
+    f = CodeFile.query.get(file_id)
+    if not f or f.repo.owner_id != current_user.id:
         abort(403)
-    f.content = request.form['content']
+    
+    f.content = content
     db.session.commit()
     return 'saved'
+
+# ====================== DELETE FILE (NEW FEATURE) ======================
+@app.route('/file/delete/<int:file_id>', methods=['POST'])
+@login_required
+def delete_file(file_id):
+    f = CodeFile.query.get_or_404(file_id)
+    if f.repo.owner_id != current_user.id:
+        abort(403)
+    
+    repo_id = f.repo.id
+    db.session.delete(f)
+    db.session.commit()
+    flash(f'File "{f.name}" deleted successfully.')
+    
+    # Redirect back to the repo, which will open the next available file or the repo view
+    return redirect(url_for('editor', repo_id=repo_id))
 
 # ====================== NEW FILE ======================
 @app.route('/file/new', methods=['POST'])
@@ -454,33 +588,33 @@ def settings():
     </head>
     <body class="h-full flex flex-col">
         {{ navbar() }}
-        <div class="p-10 max-w-2xl mx-auto flex-1 w-full">
-            <h1 class="text-4xl font-bold mb-10 flex items-center gap-3"><i data-lucide="settings" class="w-8 h-8 text-indigo-400"></i> Settings</h1>
+        <div class="p-4 sm:p-10 max-w-2xl mx-auto flex-1 w-full">
+            <h1 class="text-3xl sm:text-4xl font-bold mb-6 sm:mb-10 flex items-center gap-3"><i data-lucide="settings" class="w-6 h-6 sm:w-8 sm:h-8 text-indigo-400"></i> Settings</h1>
             {% with messages = get_flashed_messages() %}
                 {% if messages %}
-                    <div class="mb-6 p-4 rounded-xl bg-green-800 text-green-200 flex items-center gap-2">
+                    <div class="mb-4 sm:mb-6 p-4 rounded-xl bg-green-800 text-green-200 flex items-center gap-2">
                         <i data-lucide="check-circle" class="w-5 h-5"></i>
                         {% for message in messages %}
-                            <p>{{ message }}</p>
+                            <p class="text-sm">{{ message }}</p>
                         {% endfor %}
                     </div>
                 {% endif %}
             {% endwith %}
-            <form method="post" class="bg-gray-800 p-8 rounded-2xl space-y-8 shadow-xl">
+            <form method="post" class="bg-gray-800 p-6 sm:p-8 rounded-2xl space-y-6 sm:space-y-8 shadow-xl">
                 <div>
-                    <label class="block text-xl mb-3 flex items-center gap-2"><i data-lucide="user" class="w-5 h-5"></i> Display Name</label>
-                    <input name="display_name" value="{{ current_user.display_name }}" class="w-full px-6 py-4 bg-gray-700 rounded-xl">
+                    <label class="block text-base sm:text-xl mb-3 flex items-center gap-2"><i data-lucide="user" class="w-5 h-5"></i> Display Name</label>
+                    <input name="display_name" value="{{ current_user.display_name }}" class="w-full px-4 py-3 sm:px-6 sm:py-4 bg-gray-700 rounded-xl">
                 </div>
                 <div>
-                    <label class="block text-xl mb-3 flex items-center gap-2"><i data-lucide="key" class="w-5 h-5"></i> New Password (optional)</label>
-                    <input name="password" type="password" placeholder="Leave blank to keep current" class="w-full px-6 py-4 bg-gray-700 rounded-xl">
+                    <label class="block text-base sm:text-xl mb-3 flex items-center gap-2"><i data-lucide="key" class="w-5 h-5"></i> New Password (optional)</label>
+                    <input name="password" type="password" placeholder="Leave blank to keep current" class="w-full px-4 py-3 sm:px-6 sm:py-4 bg-gray-700 rounded-xl">
                 </div>
-                <label class="flex items-center gap-4 text-xl cursor-pointer">
-                    <input type="checkbox" name="auto_save" {% if current_user.auto_save %}checked{% endif %} class="w-8 h-8">
-                    <span class="flex items-center gap-2"><i data-lucide="save" class="w-6 h-6"></i> Enable Auto-save</span>
+                <label class="flex items-center gap-4 text-base sm:text-xl cursor-pointer">
+                    <input type="checkbox" name="auto_save" {% if current_user.auto_save %}checked{% endif %} class="w-6 h-6 sm:w-8 sm:h-8">
+                    <span class="flex items-center gap-2"><i data-lucide="save" class="w-5 h-5 sm:w-6 sm:h-6"></i> Enable Auto-save</span>
                 </label>
-                <button class="w-full py-5 bg-indigo-600 hover:bg-indigo-700 font-bold rounded-xl text-xl flex items-center justify-center gap-2 transition duration-150 hover:scale-[1.03]">
-                    <i data-lucide="disc-3" class="w-6 h-6 animate-spin-slow"></i> Save Settings
+                <button class="w-full py-4 sm:py-5 bg-indigo-600 hover:bg-indigo-700 font-bold rounded-xl text-lg sm:text-xl flex items-center justify-center gap-2 transition duration-150 hover:scale-[1.03]">
+                    <i data-lucide="disc-3" class="w-5 h-5 sm:w-6 sm:h-6 animate-spin-slow"></i> Save Settings
                 </button>
             </form>
         </div>
@@ -492,6 +626,6 @@ def settings():
 
 # ====================== MAIN ======================
 if __name__ == '__main__':
-    print("CodeVault PRO v4 is running! (Icons & Animations Added)")
+    print("CodeVault PRO v5 is running! (Mobile-ready, Save Fixed, Highlighted)")
     print("Visit: http://127.0.0.1:5000")
     app.run(host='0.0.0.0', port=5000, debug=False)
