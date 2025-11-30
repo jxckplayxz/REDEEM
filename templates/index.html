@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Private Chat by Nickname</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Configure Tailwind for Inter font -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        'primary-blue': '#4c51bf',
+                        'secondary-gray': '#f3f4f6',
+                        'chat-green': '#10b981', /* Emerald for DM */
+                        'chat-yellow': '#f59e0b', /* Amber for Global */
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Apply smooth scrolling and Inter font globally */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7fafc;
+        }
+        /* Custom scrollbar for the chat history container */
+        #chat-history::-webkit-scrollbar {
+            width: 8px;
+        }
+        #chat-history::-webkit-scrollbar-thumb {
+            background-color: #cbd5e1;
+            border-radius: 4px;
+        }
+        #chat-history::-webkit-scrollbar-track {
+            background: #f7fafc;
+        }
+        .chat-container {
+            max-height: calc(100vh - 150px); /* Adjusted for DM bar */
+        }
+        .copy-status {
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
+        }
+        .copy-status.visible {
+            opacity: 1;
+        }
+        /* Hide ID span initially */
+        #user-info {
+            display: none;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4 sm:p-6">
+
+    <div id="app-container" class="bg-white rounded-xl shadow-2xl w-full max-w-lg flex flex-col h-[85vh] overflow-hidden">
+        
+        <!-- Header -->
+        <header class="p-4 bg-primary-blue text-white rounded-t-xl shadow-md flex justify-between items-center">
+            <h1 id="chat-title" class="text-xl font-bold transition-colors duration-300">Global Chat Room</h1>
+            <div class="flex flex-col items-end">
+                <span id="user-info" class="text-xs font-mono text-white/50"></span>
+                <span id="user-nickname" class="text-sm font-semibold text-white bg-opacity-30 px-3 py-1 rounded-full">Loading User...</span>
+            </div>
+        </header>
+
+        <!-- DM Initiation / Status Bar -->
+        <div id="status-bar" class="p-2 border-b border-gray-200 flex flex-col sm:flex-row justify-between items-center bg-white space-y-2 sm:space-y-0">
+             
+             <!-- DM Nickname Input -->
+             <div id="dm-input-container" class="w-full sm:w-1/2 flex space-x-1">
+                 <input
+                    type="text"
+                    id="dm-nickname-input"
+                    placeholder="Friend's Nickname"
+                    class="flex-grow p-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary-blue"
+                 />
+                 <button 
+                    onclick="startDmByNickname()" 
+                    id="start-dm-btn"
+                    class="bg-chat-green text-white px-3 py-1 rounded-lg font-semibold text-sm hover:bg-emerald-600 transition duration-150 active:scale-95 disabled:opacity-50"
+                    disabled
+                 >
+                     Start DM
+                 </button>
+             </div>
+             
+             <!-- Back Button (Hidden in Global Mode) -->
+             <button id="back-to-global-btn" onclick="setChatMode('global')" class="hidden text-sm w-full sm:w-auto px-3 py-1 bg-chat-yellow text-white rounded-lg hover:bg-amber-600 transition duration-150">
+                 ← Back to Global Chat
+             </button>
+        </div>
+
+
+        <!-- Chat History Container -->
+        <main id="chat-history" class="flex-grow p-4 overflow-y-auto space-y-4 chat-container">
+            <div id="loading-indicator" class="text-center text-gray-500 py-4">
+                Connecting to the server...
+            </div>
+        </main>
+
+        <!-- Input Area -->
+        <footer class="p-4 border-t border-gray-200 bg-secondary-gray">
+            <div class="flex space-x-3">
+                <input
+                    type="text"
+                    id="message-input"
+                    placeholder="Type your message here..."
+                    class="flex-grow p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-blue transition duration-150"
+                    aria-label="Message input"
+                    disabled
+                />
+                <button
+                    id="send-button"
+                    onclick="sendMessage()"
+                    class="bg-primary-blue text-white p-3 rounded-lg font-semibold shadow-lg hover:bg-primary-blue/90 transition duration-150 disabled:bg-gray-400"
+                    disabled
+                >
+                    Send
+                </button>
+            </div>
+        </footer>
+    </div>
+    
+    <!-- Nickname Modal -->
+    <div id="nickname-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white p-6 rounded-xl shadow-2xl w-full max-w-sm">
+            <h2 class="text-xl font-bold mb-4 text-primary-blue">Set Your Nickname</h2>
+            <p class="mb-4 text-sm text-gray-600">Enter a name so your friends can easily identify you.</p>
+            <input 
+                type="text" 
+                id="nickname-input" 
+                placeholder="Enter nickname (e.g., CoolBro)"
+                maxlength="20"
+                class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-blue mb-4"
+            />
+            <button 
+                onclick="setNickname()" 
+                id="nickname-submit-btn"
+                class="w-full bg-chat-green text-white p-3 rounded-lg font-semibold hover:bg-emerald-600 transition duration-150"
+            >
+                Start Chatting
+            </button>
+        </div>
+    </div>
+
+
+    <!-- Firebase Imports and Client-Side Logic -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, addDoc, onSnapshot, collection, query, serverTimestamp, orderBy, limit, setLogLevel, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- GLOBAL VARIABLES INJECTED BY FLASK (JINJA TEMPLATING) ---
+        // Note: The `| safe` filter is crucial for parsing the firebase config JSON string correctly.
+        const appId = '{{ app_id }}';
+        const firebaseConfig = JSON.parse('{{ firebase_config | safe }}');
+        const initialAuthToken = '{{ initial_auth_token }}';
+
+        let db;
+        let auth;
+        let currentUserId = null;
+        let currentNickname = 'Guest';
+        let unsubscribeListener = null; 
+
+        // State Management
+        let currentChatMode = 'global'; // 'global' or 'UID1_UID2' (canonical ID)
+        let targetFriendId = null; 
+        let targetFriendNickname = null;
+        let nicknameMap = {}; // Cache: { userId: nickname }
+        let reverseNicknameMap = {}; // Cache: { nickname: userId }
+
+        // Make global functions available to the HTML
+        window.sendMessage = sendMessage;
+        window.setNickname = setNickname;
+        window.startPrivateChat = startPrivateChat;
+        window.setChatMode = setChatMode;
+        window.startDmByNickname = startDmByNickname;
+
+
+        // --- NICKNAME/PROFILE LOGIC ---
+
+        const getUserProfileRef = (userId) => doc(db, 'artifacts', appId, 'public', 'data', 'userProfiles', userId);
+        const getProfilesCollectionRef = () => collection(db, 'artifacts', appId, 'public', 'data', 'userProfiles');
+        
+        // Caches all nicknames for lookup (since we can't rely on index creation)
+        async function cacheAllNicknames() {
+            try {
+                const snapshot = await getDocs(getProfilesCollectionRef());
+                nicknameMap = {};
+                reverseNicknameMap = {};
+
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (data.userId && data.nickname) {
+                        nicknameMap[data.userId] = data.nickname;
+                        reverseNicknameMap[data.nickname] = data.userId;
+                    }
+                });
+                console.log(`Cached ${Object.keys(nicknameMap).length} user profiles.`);
+            } catch (error) {
+                console.error("Error caching nicknames:", error);
+            }
+        }
+
+        async function loadUserNickname() {
+            if (!db || !currentUserId) return;
+
+            // Load all nicknames first
+            await cacheAllNicknames();
+
+            const profileDoc = await getDoc(getUserProfileRef(currentUserId));
+            
+            if (profileDoc.exists() && profileDoc.data().nickname) {
+                currentNickname = profileDoc.data().nickname;
+                document.getElementById('user-nickname').textContent = currentNickname;
+                document.getElementById('nickname-modal').classList.add('hidden');
+            } else {
+                // If no nickname exists, show the modal
+                document.getElementById('nickname-modal').classList.remove('hidden');
+                document.getElementById('nickname-submit-btn').disabled = false;
+            }
+        }
+
+        async function setNickname() {
+            const input = document.getElementById('nickname-input');
+            const nickname = input.value.trim();
+            const submitBtn = document.getElementById('nickname-submit-btn');
+
+            if (nickname.length < 3 || nickname.includes('_') || nickname.includes(' ')) {
+                input.value = '';
+                input.placeholder = "Min 3 chars, no spaces/underscores!";
+                return;
+            }
+            
+            submitBtn.disabled = true;
+
+            // Check if nickname is already taken (case-sensitive check on cached map)
+            if (reverseNicknameMap[nickname]) {
+                input.value = '';
+                input.placeholder = `Nickname '${nickname}' is taken! Try another.`;
+                submitBtn.disabled = false;
+                return;
+            }
+
+            try {
+                // Save the nickname
+                await setDoc(getUserProfileRef(currentUserId), {
+                    userId: currentUserId,
+                    nickname: nickname,
+                    updatedAt: serverTimestamp(),
+                }, { merge: true });
+
+                currentNickname = nickname;
+                document.getElementById('user-nickname').textContent = currentNickname;
+                document.getElementById('nickname-modal').classList.add('hidden');
+                
+                // Update cache
+                nicknameMap[currentUserId] = nickname;
+                reverseNicknameMap[nickname] = currentUserId;
+
+                setChatMode('global'); // Start listener
+
+            } catch (e) {
+                console.error("Error setting nickname:", e);
+                displayToast('Failed to set nickname.', 'bg-red-500');
+                submitBtn.disabled = false;
+            }
+        }
+        
+        // --- CHAT ROOM MANAGEMENT ---
+
+        /**
+         * Determines the collection path based on the current chat mode.
+         */
+        function getMessageCollectionPath() {
+            if (currentChatMode === 'global') {
+                return ['artifacts', appId, 'public', 'data', 'globalChats'];
+            } else {
+                // currentChatMode holds the canonical ID (e.g., UID1_UID2)
+                return ['artifacts', appId, 'public', 'data', 'privateChats', currentChatMode, 'messages'];
+            }
+        }
+
+        /**
+         * Switches the chat room being viewed and re-attaches the listener.
+         */
+        function setChatMode(mode, friendId = null, friendNickname = null) {
+            if (!db || !currentUserId || !currentNickname || document.getElementById('nickname-modal').classList.contains('hidden') === false) {
+                return; // Wait for initialization and nickname setting
+            }
+            
+            if (unsubscribeListener) {
+                unsubscribeListener();
+            }
+
+            currentChatMode = mode;
+            targetFriendId = friendId;
+            targetFriendNickname = friendNickname;
+
+            const titleElement = document.getElementById('chat-title');
+            const backBtn = document.getElementById('back-to-global-btn');
+            const dmInputContainer = document.getElementById('dm-input-container');
+
+            if (mode === 'global') {
+                titleElement.textContent = 'Global Chat Room';
+                titleElement.classList.remove('text-chat-green');
+                titleElement.classList.add('text-white');
+                backBtn.classList.add('hidden');
+                dmInputContainer.classList.remove('hidden');
+                document.getElementById('start-dm-btn').disabled = false;
+            } else {
+                // DM Mode
+                const name = targetFriendNickname || 'Friend';
+                titleElement.textContent = `DM with ${name}`;
+                titleElement.classList.remove('text-white');
+                titleElement.classList.add('text-chat-green');
+                backBtn.classList.remove('hidden');
+                dmInputContainer.classList.add('hidden');
+            }
+            
+            // Start the new listener
+            startMessageListener(getMessageCollectionPath());
+        }
+
+        /**
+         * Initiates a private chat by a direct User ID click (e.g., from the DM button).
+         */
+        function startPrivateChat(friendId) {
+            if (friendId === currentUserId) {
+                displayToast("You can't DM yourself!", 'bg-red-500');
+                return;
+            }
+            
+            const friendNickname = nicknameMap[friendId] || 'Unknown';
+
+            // Create a canonical ID by sorting the UIDs
+            const chatUsers = [currentUserId, friendId].sort();
+            const canonicalChatId = chatUsers.join('_');
+
+            setChatMode(canonicalChatId, friendId, friendNickname);
+        }
+
+        /**
+         * Initiates a private chat by a nickname lookup (e.g., from the "Start DM" bar).
+         */
+        async function startDmByNickname() {
+            const input = document.getElementById('dm-nickname-input');
+            const friendNickname = input.value.trim();
+
+            if (friendNickname === currentNickname) {
+                displayToast("That's your nickname!", 'bg-red-500');
+                input.value = '';
+                return;
+            }
+
+            // Lookup User ID from cached map
+            const friendId = reverseNicknameMap[friendNickname];
+
+            if (friendId) {
+                input.value = '';
+                startPrivateChat(friendId);
+            } else {
+                displayToast(`User '${friendNickname}' not found. Check spelling.`, 'bg-red-500');
+            }
+        }
+
+
+        // --- REAL-TIME LISTENERS ---
+
+        /**
+         * Starts the Firestore real-time listener for the given collection path.
+         */
+        function startMessageListener(pathArray) {
+            if (!db) return;
+
+            const chatHistory = document.getElementById('chat-history');
+            const messagesCollectionRef = collection(db, ...pathArray);
+
+            // Create a query: Order by timestamp
+            const q = query(messagesCollectionRef, orderBy('timestamp', 'asc'), limit(100));
+
+            unsubscribeListener = onSnapshot(q, (snapshot) => {
+                chatHistory.innerHTML = ''; 
+                
+                // Re-render all messages
+                snapshot.forEach((doc) => {
+                    displayMessage(doc.data());
+                });
+
+                // Scroll to the bottom to show the latest message
+                chatHistory.scrollTop = chatHistory.scrollHeight;
+
+                if (snapshot.empty) {
+                     chatHistory.innerHTML = '<div class="text-center text-gray-500 py-4">Start the conversation!</div>';
+                }
+            }, (error) => {
+                console.error("Error listening to messages:", error);
+                chatHistory.innerHTML = `<div class="text-center text-red-500 py-4">Error loading messages: ${error.message}</div>`;
+            });
+        }
+        
+
+        // --- DISPLAY MESSAGE HELPER ---
+        function displayMessage(message) {
+            const chatHistory = document.getElementById('chat-history');
+            const isUser = message.userId === currentUserId;
+
+            // Determine bubble style and alignment based on sender
+            const alignmentClass = isUser ? 'self-end items-end' : 'self-start items-start';
+            const bubbleColor = isUser ? 'bg-primary-blue text-white' : 'bg-secondary-gray text-gray-800';
+            const marginClass = isUser ? 'ml-auto' : 'mr-auto';
+            const bubbleRounded = isUser ? 'rounded-br-none' : 'rounded-bl-none';
+
+            // Get sender name (from cache or fallback)
+            const senderName = nicknameMap[message.userId] || `User_${message.userId.substring(0, 4)}`;
+            
+            // Create the main message container
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `flex flex-col max-w-[80%] ${alignmentClass} ${marginClass}`;
+            
+            // Sender Info and DM Button
+            const infoContainer = document.createElement('div');
+            infoContainer.className = `flex items-center space-x-2 text-xs text-gray-500 mb-1 ${isUser ? 'justify-end' : 'justify-start'}`;
+            
+            const timestampText = message.timestamp ? formatTimestamp(message.timestamp.toDate()) : 'Sending...';
+
+            const senderSpan = document.createElement('strong');
+            senderSpan.className = `font-semibold ${isUser ? 'text-primary-blue' : 'text-gray-800'}`;
+            senderSpan.textContent = isUser ? 'You' : senderName;
+            
+            const timeSpan = document.createElement('span');
+            timeSpan.textContent = `· ${timestampText}`;
+
+
+            infoContainer.appendChild(senderSpan);
+            infoContainer.appendChild(timeSpan);
+            
+            // DM button (only visible in global chat for other users)
+            if (!isUser && currentChatMode === 'global') {
+                 const dmButton = document.createElement('button');
+                 dmButton.textContent = 'DM';
+                 dmButton.className = 'text-xs text-chat-green bg-emerald-100 px-2 py-0.5 rounded-full hover:bg-emerald-200 transition duration-150 active:scale-95';
+                 dmButton.onclick = () => startPrivateChat(message.userId);
+                 infoContainer.appendChild(dmButton);
+            }
+            
+            messageDiv.appendChild(infoContainer);
+
+
+            // Add the bubble content
+            const bubbleDiv = document.createElement('div');
+            bubbleDiv.className = `p-3 rounded-xl shadow-md ${bubbleColor} ${bubbleRounded} whitespace-pre-wrap break-words`;
+            bubbleDiv.textContent = message.text;
+            
+            messageDiv.appendChild(bubbleDiv);
+            chatHistory.appendChild(messageDiv);
+        }
+
+        // --- SEND MESSAGE FUNCTION ---
+        async function sendMessage() {
+            if (!db || !currentUserId || !currentNickname || currentNickname === 'Guest') {
+                displayToast("Please set your nickname first.", 'bg-red-500');
+                return;
+            }
+
+            const input = document.getElementById('message-input');
+            const text = input.value.trim();
+
+            if (text === '') return;
+
+            const pathArray = getMessageCollectionPath();
+            const messagesCollectionRef = collection(db, ...pathArray);
+
+            try {
+                // Add the message document to the Firestore collection
+                await addDoc(messagesCollectionRef, {
+                    userId: currentUserId,
+                    text: text,
+                    timestamp: serverTimestamp(),
+                });
+                
+                // Clear the input field after sending
+                input.value = '';
+                input.focus();
+
+            } catch (error) {
+                console.error("Error sending message:", error);
+                displayToast('Failed to send message. Check connection.', 'bg-red-500'); 
+            }
+        }
+        
+        // --- UTILITY FUNCTIONS ---
+        
+        // Custom Toast Notification (instead of alert)
+        function displayToast(message, bgColor) {
+            let toast = document.getElementById('custom-toast');
+            if (!toast) {
+                toast = document.createElement('div');
+                toast.id = 'custom-toast';
+                document.body.appendChild(toast);
+            }
+            
+            toast.className = `fixed bottom-5 left-1/2 transform -translate-x-1/2 px-4 py-2 text-white rounded-lg shadow-xl transition-opacity duration-300 z-[100] ${bgColor}`;
+            toast.textContent = message;
+            toast.classList.remove('opacity-0');
+            toast.classList.add('opacity-100');
+            
+            setTimeout(() => {
+                toast.classList.remove('opacity-100');
+                toast.classList.add('opacity-0');
+            }, 3000);
+        }
+
+        function formatTimestamp(date) {
+            if (!date) return '';
+            return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        // --- FIREBASE INITIALIZATION AND AUTHENTICATION ---
+        async function initializeFirebase() {
+            if (!firebaseConfig || !firebaseConfig.apiKey) {
+                document.getElementById('loading-indicator').textContent = "Error: Firebase config missing.";
+                return;
+            }
+
+            try {
+                setLogLevel('debug'); // Enable Firestore logging
+
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                
+                // Authentication flow
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        currentUserId = user.uid;
+                        document.getElementById('user-info').textContent = currentUserId; // Keep ID hidden for debug
+                        
+                        await loadUserNickname(); // Loads nickname and sets initial mode
+                        
+                        // Enable general chat interface elements
+                        document.getElementById('message-input').disabled = false;
+                        document.getElementById('send-button').disabled = false;
+                        document.getElementById('start-dm-btn').disabled = false;
+
+                    } else {
+                        // Attempt to sign in if no user is found
+                        if (initialAuthToken) {
+                            await signInWithCustomToken(auth, initialAuthToken);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    }
+                });
+
+            } catch (error) {
+                console.error("Error initializing Firebase or signing in:", error);
+                document.getElementById('loading-indicator').textContent = "Connection Error. Check console.";
+            }
+        }
+
+        // Start the application
+        initializeFirebase();
+
+    </script>
+</body>
+</html>
+
