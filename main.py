@@ -1,5 +1,5 @@
 # ================================================
-# CODEVAULT PRO v4 – FULL SINGLE-FILE (FIXED NAVBAR + ICONS)
+# CODEVAULT PRO v4 – FULL SINGLE-FILE (FLOATY NAVBAR)
 # ================================================
 
 from flask import Flask, render_template_string, request, redirect, url_for, flash, abort, Response
@@ -9,7 +9,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 import os
 import sqlite3
-from markupsafe import Markup # Import Markup for safer rendering
+from markupsafe import Markup 
 
 # ====================== APP SETUP ======================
 app = Flask(__name__)
@@ -21,7 +21,8 @@ db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
-# ====================== MODELS ======================
+# (MODELS and FIX_DATABASE functions remain unchanged)
+
 class User(UserMixin, db.Model):
     __tablename__ = 'user'
     id = db.Column(db.Integer, primary_key=True)
@@ -53,7 +54,6 @@ class CodeFile(db.Model):
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-# ====================== FIX OLD DB ======================
 def fix_database():
     if not os.path.exists('codevault.db'):
         return
@@ -85,9 +85,9 @@ with app.app_context():
         db.session.add(demo)
         db.session.commit()
 
-# ====================== NAVBAR (FIXED WITH FUNCTION CALL) ======================
+# ====================== NAVBAR (FLOATY CSS APPLIED) ======================
 NAVBAR_TEMPLATE = '''
-<nav class="bg-gray-900 border-b border-gray-800 px-4 py-3 flex justify-between items-center sticky top-0 z-50">
+<div class="h-20"></div> <nav class="bg-gray-900/90 backdrop-blur-sm border border-gray-800 shadow-xl rounded-xl p-4 flex justify-between items-center fixed top-0 left-0 right-0 z-50 mx-auto mt-4 w-[95%] lg:w-[90%]">
     <div class="flex items-center gap-3">
         <i data-lucide="code" class="w-8 h-8 text-indigo-400"></i>
         <a href="/" class="text-2xl font-bold text-indigo-400 hover:text-indigo-300">CodeVault</a>
@@ -118,7 +118,6 @@ NAVBAR_TEMPLATE = '''
 '''
 
 # Define a function to render the navbar template
-# This ensures the internal Jinja logic (like the if/else for login) is executed
 def render_navbar():
     # render_template_string executes the Jinja logic, and we use Markup to mark it as safe HTML
     return Markup(render_template_string(NAVBAR_TEMPLATE, current_user=current_user))
@@ -128,6 +127,9 @@ app.jinja_env.globals['navbar'] = render_navbar
 
 
 # ====================== ROUTES ======================
+
+# (The rest of the routes are updated to use {{ navbar() }} and remain structurally the same)
+
 @app.route('/')
 def index():
     return redirect('/explore')
@@ -173,7 +175,8 @@ def explore():
     <html class="h-full bg-gray-900 text-white">
     <head><title>Explore</title><script src="https://cdn.tailwindcss.com"></script></head>
     <body class="h-full flex flex-col">
-        {{ navbar() }} <div class="p-6 max-w-6xl mx-auto flex-1 w-full"> 
+        {{ navbar() }}
+        <div class="p-6 max-w-6xl mx-auto flex-1 w-full"> 
             <h1 class="text-4xl font-bold mb-8">Public Repositories</h1>
             <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {% for r in repos %}
@@ -201,7 +204,8 @@ def dashboard():
     <html class="h-full bg-gray-900 text-white">
     <head><title>Dashboard</title><script src="https://cdn.tailwindcss.com"></script></head>
     <body class="h-full flex flex-col">
-        {{ navbar() }} <div class="p-6 max-w-6xl mx-auto flex-1 w-full">
+        {{ navbar() }}
+        <div class="p-6 max-w-6xl mx-auto flex-1 w-full">
             <a href="/repo/new" class="inline-block bg-indigo-600 hover:bg-indigo-700 px-8 py-4 rounded-xl font-bold text-xl mb-8">+ New Repository</a>
             <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {% for r in repos %}
@@ -241,7 +245,8 @@ def new_repo():
     <html class="h-full bg-gray-900 text-white">
     <head><title>New Repo</title><script src="https://cdn.tailwindcss.com"></script></head>
     <body class="h-full flex flex-col">
-        {{ navbar() }} <div class="flex-1 flex items-center justify-center p-6">
+        {{ navbar() }}
+        <div class="flex-1 flex items-center justify-center p-6">
             <form method="post" class="bg-gray-800 p-10 rounded-2xl w-full max-w-lg space-y-6">
                 <h1 class="text-4xl font-bold">New Repository</h1>
                 <input name="name" placeholder="Repository Name" required class="w-full px-6 py-4 bg-gray-700 rounded-xl">
@@ -270,7 +275,8 @@ def editor(repo_id):
     <html class="h-full bg-gray-900 text-white">
     <head><title>{{ repo.name }} - CodeVault</title><meta name="viewport" content="width=device-width, initial-scale=1"><script src="https://cdn.tailwindcss.com"></script></head>
     <body class="h-full flex flex-col">
-        {{ navbar() }} <div class="flex-1 flex flex-col lg:flex-row">
+        {{ navbar() }}
+        <div class="flex-1 flex flex-col lg:flex-row">
             <div class="w-full lg:w-80 bg-gray-800 border-r border-gray-700 p-6 overflow-y-auto">
                 <h2 class="text-2xl font-bold mb-6">{{ repo.name }}</h2>
                 <div class="space-y-3">
@@ -396,7 +402,8 @@ def settings():
         <script src="https://cdn.tailwindcss.com"></script>
     </head>
     <body class="h-full flex flex-col">
-        {{ navbar() }} <div class="p-10 max-w-2xl mx-auto flex-1 w-full">
+        {{ navbar() }}
+        <div class="p-10 max-w-2xl mx-auto flex-1 w-full">
             <h1 class="text-4xl font-bold mb-10">Settings</h1>
             {% with messages = get_flashed_messages() %}
                 {% if messages %}
