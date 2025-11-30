@@ -1,5 +1,5 @@
 # ================================================
-# CODEVAULT PRO v7.1 – MOBILE NAVIGATION FIX
+# CODEVAULT PRO v8 – ADMIN CONTROLS & NOTIFICATIONS
 # ================================================
 
 from flask import Flask, render_template_string, request, redirect, url_for, flash, abort, Response
@@ -24,7 +24,7 @@ db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
-# ====================== MODELS (UNCHANGED) ======================
+# ====================== MODELS (UPDATED) ======================
 class User(UserMixin, db.Model):
     __tablename__ = 'user'
     id = db.Column(db.Integer, primary_key=True)
@@ -34,6 +34,10 @@ class User(UserMixin, db.Model):
     auto_save = db.Column(db.Boolean, default=True)
     dark_mode = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # --- NEW ADMIN FIELDS ---
+    is_admin = db.Column(db.Boolean, default=False)
+    admin_note = db.Column(db.Text, nullable=True) # Message for the user to read
 
 class Repository(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -56,12 +60,36 @@ class CodeFile(db.Model):
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-# ====================== UTILITY FUNCTIONS (UNCHANGED) ======================
+# ====================== ADMIN DECORATOR ======================
+def admin_required(f):
+    def wrapper(*args, **kwargs):
+        if not current_user.is_authenticated or not current_user.is_admin:
+            abort(403) # Forbidden
+        return f(*args, **kwargs)
+    wrapper.__name__ = f.__name__
+    return wrapper
 
+# ====================== UTILITY FUNCTIONS (UNCHANGED) ======================
+# ... (fix_database, get_prism_language, get_file_icon remain the same) ...
 def fix_database():
     if not os.path.exists('codevault.db'):
         return
-    pass
+    # Check if new columns exist and add them if not (manual migration for simplicity)
+    conn = sqlite3.connect('codevault.db')
+    cursor = conn.cursor()
+    try:
+        # Check for is_admin column
+        cursor.execute("PRAGMA table_info(user)")
+        columns = [col[1] for col in cursor.fetchall()]
+        if 'is_admin' not in columns:
+            cursor.execute("ALTER TABLE user ADD COLUMN is_admin BOOLEAN DEFAULT 0")
+        if 'admin_note' not in columns:
+            cursor.execute("ALTER TABLE user ADD COLUMN admin_note TEXT NULL")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+    finally:
+        conn.close()
 
 def get_prism_language(filename):
     ext = os.path.splitext(filename)[1].lower()
@@ -88,23 +116,25 @@ def get_file_icon(filename):
 app.jinja_env.globals['get_file_icon'] = get_file_icon
 
 
-# ====================== STARTUP ======================
+# ====================== STARTUP (UPDATE) ======================
 with app.app_context():
     db.create_all()
-    fix_database()
+    fix_database() # Applies migration logic
+    
+    # Ensure the first user created is automatically set as the Admin
+    first_user = User.query.order_by(User.id.asc()).first()
+    if first_user and not first_user.is_admin:
+        first_user.is_admin = True
+        first_user.display_name = "👑 Admin"
+        db.session.commit()
+        print(f"User '{first_user.username}' promoted to Admin.")
 
 
-# ====================== NAVBAR TEMPLATE (FIXED FOR MOBILE) ======================
+# ====================== NAVBAR TEMPLATE (UPDATED FOR ADMIN LINK) ======================
 NAVBAR_TEMPLATE = '''
 <style>
-    /* Custom styling for smooth sidebar transition */
-    .sidebar-transition {
-        transition: transform 0.3s ease-in-out;
-        transform: translateX(-100%);
-    }
-    .sidebar-open .sidebar-transition {
-        transform: translateX(0);
-    }
+    .sidebar-transition { transition: transform 0.3s ease-in-out; transform: translateX(-100%); }
+    .sidebar-open .sidebar-transition { transform: translateX(0); }
 </style>
 
 <div class="h-20"></div> 
@@ -115,6 +145,11 @@ NAVBAR_TEMPLATE = '''
     </div>
 
     <div class="hidden lg:flex items-center gap-6">
+        {% if current_user.is_authenticated and current_user.is_admin %}
+        <a href="/admin" class="text-red-400 hover:text-red-300 flex items-center gap-1 text-base font-bold transition duration-150 hover:scale-105">
+            <i data-lucide="shield-half" class="w-5 h-5"></i> Admin
+        </a>
+        {% endif %}
         <a href="/explore" class="text-gray-300 hover:text-white flex items-center gap-1 text-base transition duration-150 hover:scale-105">
             <i data-lucide="compass" class="w-5 h-5"></i> Explore
         </a>
@@ -149,6 +184,13 @@ NAVBAR_TEMPLATE = '''
 
 <div id="sidebar" class="sidebar-transition fixed top-0 left-0 h-full w-64 bg-gray-900 z-[60] border-r border-gray-700 p-6 pt-24 lg:hidden">
     <div class="space-y-4">
+        {% if current_user.is_authenticated and current_user.is_admin %}
+        <a href="/admin" class="block text-red-400 hover:text-red-300 flex items-center gap-3 text-lg p-2 rounded-lg transition duration-150 hover:bg-gray-800 font-bold">
+            <i data-lucide="shield-half" class="w-5 h-5"></i> Admin Panel
+        </a>
+        <div class="h-px bg-gray-700 my-4"></div>
+        {% endif %}
+        
         <a href="/explore" class="block text-gray-300 hover:text-indigo-400 flex items-center gap-3 text-lg p-2 rounded-lg transition duration-150 hover:bg-gray-800">
             <i data-lucide="compass" class="w-5 h-5"></i> Explore
         </a>
@@ -164,6 +206,10 @@ NAVBAR_TEMPLATE = '''
         <a href="/logout" class="block text-red-400 hover:text-red-300 flex items-center gap-3 text-lg p-2 rounded-lg transition duration-150 hover:bg-gray-800">
             <i data-lucide="log-out" class="w-5 h-5"></i> Logout
         </a>
+        {% else %}
+        <a href="/login" class="block bg-indigo-600 hover:bg-indigo-700 px-4 py-3 rounded-lg font-bold text-center flex items-center justify-center gap-2 transition duration-150 hover:scale-[1.02]">
+            <i data-lucide="log-in" class="w-5 h-5"></i> Login / Register
+        </a>
         {% endif %}
     </div>
 </div>
@@ -174,20 +220,19 @@ NAVBAR_TEMPLATE = '''
 <script>
     lucide.createIcons();
     
-    // Mobile Sidebar Logic
+    // Mobile Sidebar Logic (Uses the same logic as v7.1)
     const menuToggle = document.getElementById('menu-toggle');
     const sidebar = document.getElementById('sidebar');
     const overlay = document.getElementById('sidebar-overlay');
     const body = document.body;
 
-    // Only set up toggle logic if menuToggle exists (i.e., user is logged in and needs the menu)
     if (menuToggle) {
         function toggleSidebar() {
             body.classList.toggle('sidebar-open');
             if (body.classList.contains('sidebar-open')) {
                 overlay.style.opacity = '1';
                 overlay.style.pointerEvents = 'auto';
-                body.style.overflow = 'hidden'; // Prevent scrolling the main content
+                body.style.overflow = 'hidden';
             } else {
                 overlay.style.opacity = '0';
                 overlay.style.pointerEvents = 'none';
@@ -198,7 +243,6 @@ NAVBAR_TEMPLATE = '''
         menuToggle.addEventListener('click', toggleSidebar);
         overlay.addEventListener('click', toggleSidebar);
         
-        // Close sidebar on link click (important for mobile UX)
         document.querySelectorAll('#sidebar a').forEach(link => {
             link.addEventListener('click', () => {
                 if (body.classList.contains('sidebar-open')) {
@@ -216,17 +260,280 @@ def render_navbar():
 
 app.jinja_env.globals['navbar'] = render_navbar
 
+# ====================== ADMIN ROUTES (NEW) ======================
 
-# ====================== REMAINING ROUTES (UNCHANGED) ======================
-@app.route('/')
-def index():
-    return redirect('/explore')
+@app.route('/admin')
+@admin_required
+def admin_panel():
+    users = User.query.all()
+    repos = Repository.query.order_by(Repository.created_at.desc()).all()
+    return render_template_string('''
+    <!DOCTYPE html>
+    <html class="h-full bg-gray-900 text-white">
+    <head><title>Admin Panel</title><script src="https://cdn.tailwindcss.com"></script></head>
+    <body class="h-full flex flex-col">
+        {{ navbar() }}
+        <div class="p-4 sm:p-8 max-w-6xl mx-auto flex-1 w-full">
+            <h1 class="text-4xl font-bold mb-8 flex items-center gap-3 text-red-400"><i data-lucide="shield-half" class="w-8 h-8"></i> Admin Panel</h1>
+            {% with messages = get_flashed_messages() %}
+                {% if messages %}
+                    <div class="mb-4 p-4 rounded-xl bg-green-800 text-green-200 flex items-center gap-2 animate-fade-in-down">
+                        <i data-lucide="check-circle" class="w-5 h-5"></i>
+                        {% for message in messages %}
+                            <p class="text-sm">{{ message }}</p>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            {% endwith %}
+
+            <div class="bg-gray-800 p-6 rounded-xl shadow-xl mb-10">
+                <h2 class="text-3xl font-semibold mb-6 flex items-center gap-2"><i data-lucide="users" class="w-6 h-6 text-indigo-400"></i> User Accounts</h2>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-700">
+                        <thead class="bg-gray-700">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">ID / User</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Note Status</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-700">
+                            {% for u in users %}
+                            <tr class="hover:bg-gray-700 transition duration-150 {% if u.is_admin %}bg-red-900/20{% endif %}">
+                                <td class="px-4 py-4 whitespace-nowrap text-sm font-medium text-white">
+                                    {{ u.id }} - {{ u.username }} 
+                                    {% if u.is_admin %}<span class="text-red-400 text-xs">(Admin)</span>{% endif %}
+                                </td>
+                                <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-400">
+                                    {% if u.admin_note %}
+                                        <i data-lucide="mail-open" class="w-4 h-4 text-yellow-400 inline"></i> Note Pending
+                                    {% else %}
+                                        <i data-lucide="mail" class="w-4 h-4 text-green-400 inline"></i> Clear
+                                    {% endif %}
+                                </td>
+                                <td class="px-4 py-4 whitespace-nowrap text-right text-sm font-medium flex justify-end gap-2">
+                                    <a href="/admin/user/edit/{{ u.id }}" class="text-indigo-400 hover:text-indigo-300 transition hover:scale-105"><i data-lucide="settings" class="w-5 h-5"></i></a>
+                                    {% if u.id != current_user.id %}
+                                    <form method="POST" action="/admin/user/delete/{{ u.id }}" onsubmit="return confirm('ADMIN WARNING: Permanently delete {{ u.username }} and all their data?');">
+                                        <button type="submit" class="text-red-500 hover:text-red-400 transition hover:scale-105"><i data-lucide="trash-2" class="w-5 h-5"></i></button>
+                                    </form>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="bg-gray-800 p-6 rounded-xl shadow-xl">
+                <h2 class="text-3xl font-semibold mb-6 flex items-center gap-2"><i data-lucide="git-branch" class="w-6 h-6 text-indigo-400"></i> All Repositories</h2>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-700">
+                        <thead class="bg-gray-700">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">ID / Name</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Owner</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Visibility</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-700">
+                            {% for r in repos %}
+                            <tr class="hover:bg-gray-700 transition duration-150">
+                                <td class="px-4 py-4 whitespace-nowrap text-sm font-medium text-white">{{ r.id }} - {{ r.name }}</td>
+                                <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-400">{{ r.owner.username }}</td>
+                                <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-400">
+                                    <span class="flex items-center gap-1">
+                                        <i data-lucide="{% if r.is_public %}globe{% else %}lock{% endif %}" class="w-4 h-4"></i>
+                                        {% if r.is_public %}Public{% else %}Private{% endif %}
+                                    </span>
+                                </td>
+                                <td class="px-4 py-4 whitespace-nowrap text-right text-sm font-medium flex justify-end gap-2">
+                                    <a href="/admin/repo/edit/{{ r.id }}" class="text-indigo-400 hover:text-indigo-300 transition hover:scale-105"><i data-lucide="settings-2" class="w-5 h-5"></i></a>
+                                    <form method="POST" action="/admin/repo/delete/{{ r.id }}" onsubmit="return confirm('ADMIN WARNING: Permanently delete repository {{ r.name }} and all its files?');">
+                                        <button type="submit" class="text-red-500 hover:text-red-400 transition hover:scale-105"><i data-lucide="trash-2" class="w-5 h-5"></i></button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+        <script src="https://cdn.jsdelivr.net/npm/lucide/dist/lucide.min.js"></script>
+        <script>lucide.createIcons();</script>
+    </body>
+    </html>
+    ''', users=users, repos=repos, current_user=current_user)
+
+@app.route('/admin/user/delete/<int:user_id>', methods=['POST'])
+@admin_required
+def admin_delete_user(user_id):
+    user_to_delete = User.query.get_or_404(user_id)
+    if user_to_delete.id == current_user.id:
+        flash('You cannot delete your own admin account!', 'error')
+        return redirect(url_for('admin_panel'))
+    
+    # Cascade delete for repositories and files is handled by SQLAlchemy relationship
+    db.session.delete(user_to_delete)
+    db.session.commit()
+    flash(f'User "{user_to_delete.username}" and all their data have been deleted.', 'success')
+    return redirect(url_for('admin_panel'))
+
+@app.route('/admin/user/edit/<int:user_id>', methods=['GET', 'POST'])
+@admin_required
+def admin_edit_user(user_id):
+    user = User.query.get_or_404(user_id)
+    if request.method == 'POST':
+        user.display_name = html.escape(request.form['display_name'])
+        user.is_admin = 'is_admin' in request.form
+        
+        note = request.form['admin_note'].strip()
+        if note:
+            user.admin_note = note
+            flash(f'User {user.username} edited. Note set and will be displayed on their next login.', 'success')
+        else:
+            user.admin_note = None
+            flash(f'User {user.username} edited.', 'success')
+            
+        db.session.commit()
+        return redirect(url_for('admin_panel'))
+        
+    return render_template_string('''
+    <!DOCTYPE html>
+    <html class="h-full bg-gray-900 text-white">
+    <head><title>Edit User</title><script src="https://cdn.tailwindcss.com"></script></head>
+    <body class="h-full flex flex-col">
+        {{ navbar() }}
+        <div class="flex-1 flex items-center justify-center p-4 sm:p-6">
+            <form method="post" class="bg-gray-800 p-6 sm:p-10 rounded-2xl w-full max-w-lg space-y-4 sm:space-y-6 shadow-xl">
+                <h1 class="text-3xl sm:text-4xl font-bold flex items-center gap-3 text-red-400"><i data-lucide="settings-2" class="w-6 h-6 sm:w-8 sm:h-8"></i> Edit User: {{ user.username }}</h1>
+                
+                <div>
+                    <label class="block text-base sm:text-xl mb-2 flex items-center gap-2"><i data-lucide="user" class="w-5 h-5"></i> Display Name</label>
+                    <input name="display_name" value="{{ user.display_name }}" required class="w-full px-4 py-3 bg-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500">
+                </div>
+                
+                <label class="flex items-center gap-3 text-base sm:text-lg">
+                    <input type="checkbox" name="is_admin" {% if user.is_admin %}checked{% endif %} class="w-5 h-5"> 
+                    <i data-lucide="shield" class="w-5 h-5"></i> Promote to Admin
+                </label>
+                
+                <div>
+                    <label class="block text-base sm:text-xl mb-2 flex items-center gap-2 text-yellow-300"><i data-lucide="sticky-note" class="w-5 h-5"></i> Leave a Note for {{ user.username }} (Read on Login)</label>
+                    <textarea name="admin_note" placeholder="Enter message here. Leaving blank clears previous note." class="w-full px-4 py-3 bg-gray-700 rounded-xl h-24 focus:ring-2 focus:ring-indigo-500">{{ user.admin_note or '' }}</textarea>
+                    {% if user.admin_note %}<p class="text-sm text-yellow-400 mt-1">Current Note: {{ user.admin_note }}</p>{% endif %}
+                </div>
+                
+                <button class="w-full py-3 sm:py-4 bg-red-600 hover:bg-red-700 font-bold rounded-xl text-lg sm:text-xl flex items-center justify-center gap-2 transition duration-150 hover:scale-[1.02]">
+                    <i data-lucide="save" class="w-5 h-5"></i> Save Changes
+                </button>
+                <a href="/admin" class="block text-center text-gray-400 hover:text-white transition">Back to Admin Panel</a>
+            </form>
+        </div>
+        <script src="https://cdn.jsdelivr.net/npm/lucide/dist/lucide.min.js"></script>
+        <script>lucide.createIcons();</script>
+    </body>
+    </html>
+    ''', user=user, current_user=current_user)
+
+@app.route('/admin/repo/delete/<int:repo_id>', methods=['POST'])
+@admin_required
+def admin_delete_repo(repo_id):
+    repo = Repository.query.get_or_404(repo_id)
+    repo_name = repo.name
+    owner_username = repo.owner.username
+    
+    # Notify the user whose repo was deleted
+    repo.owner.admin_note = f"⚠️ Your repository '{repo_name}' was deleted by the administrator."
+    
+    db.session.delete(repo)
+    db.session.commit()
+    flash(f'Repository "{repo_name}" belonging to @{owner_username} has been deleted.', 'success')
+    return redirect(url_for('admin_panel'))
+
+@app.route('/admin/repo/edit/<int:repo_id>', methods=['GET', 'POST'])
+@admin_required
+def admin_edit_repo(repo_id):
+    repo = Repository.query.get_or_404(repo_id)
+    if request.method == 'POST':
+        repo.name = html.escape(request.form['name'].strip())
+        repo.description = html.escape(request.form.get('description', ''))
+        repo.is_public = 'is_public' in request.form
+        
+        note = request.form['admin_note'].strip()
+        if note:
+            repo.owner.admin_note = f"🚨 Administrator edit to your repository '{repo.name}': {note}"
+            flash(f'Repository {repo.name} edited. Notification sent to user.', 'success')
+        else:
+            flash(f'Repository {repo.name} edited.', 'success')
+            
+        db.session.commit()
+        return redirect(url_for('admin_panel'))
+        
+    return render_template_string('''
+    <!DOCTYPE html>
+    <html class="h-full bg-gray-900 text-white">
+    <head><title>Edit Repository</title><script src="https://cdn.tailwindcss.com"></script></head>
+    <body class="h-full flex flex-col">
+        {{ navbar() }}
+        <div class="flex-1 flex items-center justify-center p-4 sm:p-6">
+            <form method="post" class="bg-gray-800 p-6 sm:p-10 rounded-2xl w-full max-w-lg space-y-4 sm:space-y-6 shadow-xl">
+                <h1 class="text-3xl sm:text-4xl font-bold flex items-center gap-3 text-red-400"><i data-lucide="settings-2" class="w-6 h-6 sm:w-8 sm:h-8"></i> Edit Repo: {{ repo.name }}</h1>
+                
+                <div>
+                    <label class="block text-base sm:text-xl mb-2 flex items-center gap-2"><i data-lucide="git-branch" class="w-5 h-5"></i> Repository Name</label>
+                    <input name="name" value="{{ repo.name }}" required class="w-full px-4 py-3 bg-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-base sm:text-xl mb-2 flex items-center gap-2"><i data-lucide="align-left" class="w-5 h-5"></i> Description</label>
+                    <textarea name="description" class="w-full px-4 py-3 bg-gray-700 rounded-xl h-24 focus:ring-2 focus:ring-indigo-500">{{ repo.description or '' }}</textarea>
+                </div>
+                
+                <label class="flex items-center gap-3 text-base sm:text-lg">
+                    <input type="checkbox" name="is_public" {% if repo.is_public %}checked{% endif %} class="w-5 h-5"> 
+                    <i data-lucide="globe" class="w-5 h-5"></i> Public (Uncheck for Private)
+                </label>
+                
+                <div>
+                    <label class="block text-base sm:text-xl mb-2 flex items-center gap-2 text-yellow-300"><i data-lucide="sticky-note" class="w-5 h-5"></i> Note for Owner ({{ repo.owner.username }})</label>
+                    <textarea name="admin_note" placeholder="Enter reason for edit. This will be displayed to the user." class="w-full px-4 py-3 bg-gray-700 rounded-xl h-24 focus:ring-2 focus:ring-indigo-500"></textarea>
+                </div>
+                
+                <button class="w-full py-3 sm:py-4 bg-red-600 hover:bg-red-700 font-bold rounded-xl text-lg sm:text-xl flex items-center justify-center gap-2 transition duration-150 hover:scale-[1.02]">
+                    <i data-lucide="save" class="w-5 h-5"></i> Save Repo Changes
+                </button>
+                <a href="/admin" class="block text-center text-gray-400 hover:text-white transition">Back to Admin Panel</a>
+            </form>
+        </div>
+        <script src="https://cdn.jsdelivr.net/npm/lucide/dist/lucide.min.js"></script>
+        <script>lucide.createIcons();</script>
+    </body>
+    </html>
+    ''', repo=repo, current_user=current_user)
+
+
+# ====================== USER ROUTES (UPDATED WITH NOTE CHECK) ======================
+
+@app.before_request
+def check_admin_note():
+    # Only run if user is authenticated and navigating to a core page
+    if current_user.is_authenticated and current_user.admin_note:
+        # Flash the note message
+        flash(Markup(f"🛑 **ADMIN NOTE:** {current_user.admin_note}"), 'admin_note')
+        # Clear the note after flashing
+        current_user.admin_note = None
+        db.session.commit()
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
         return redirect('/dashboard')
     
+    # ... (login logic remains the same) ...
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
@@ -236,6 +543,13 @@ def login():
         if user:
             if check_password_hash(user.password, password):
                 login_user(user)
+                
+                # Check for admin note immediately after successful login
+                if user.admin_note:
+                    flash(Markup(f"🛑 **ADMIN NOTE:** {user.admin_note}"), 'admin_note')
+                    user.admin_note = None
+                    db.session.commit()
+                
                 flash('Login successful!')
                 return redirect('/dashboard')
             else:
@@ -252,6 +566,11 @@ def login():
                 display_name=username.capitalize()
             )
             try:
+                # If this is the very first user, promote them to Admin.
+                if User.query.count() == 0:
+                     new_user.is_admin = True
+                     new_user.display_name = "👑 Admin"
+
                 db.session.add(new_user)
                 db.session.commit()
                 login_user(new_user)
@@ -261,7 +580,6 @@ def login():
                 db.session.rollback()
                 flash('Username already taken.')
                 return redirect(url_for('login'))
-
 
     return render_template_string('''
     <!DOCTYPE html>
@@ -274,12 +592,14 @@ def login():
             </h1>
             {% with messages = get_flashed_messages() %}
                 {% if messages %}
-                    <div class="mb-4 sm:mb-6 p-4 rounded-xl bg-red-800 text-red-200 flex items-center gap-2 animate-bounce-in">
-                        <i data-lucide="alert-triangle" class="w-5 h-5"></i>
-                        {% for message in messages %}
-                            <p class="text-sm">{{ message }}</p>
-                        {% endfor %}
-                    </div>
+                    {% for category, message in get_flashed_messages(with_categories=true) %}
+                        {% if category != 'admin_note' %}
+                            <div class="mb-4 sm:mb-6 p-4 rounded-xl bg-red-800 text-red-200 flex items-center gap-2 animate-bounce-in">
+                                <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+                                <p class="text-sm">{{ message }}</p>
+                            </div>
+                        {% endif %}
+                    {% endfor %}
                 {% endif %}
             {% endwith %}
             <form method="post" class="space-y-4 sm:space-y-6">
@@ -296,6 +616,66 @@ def login():
     </body>
     </html>
     ''')
+
+
+@app.route('/dashboard')
+@login_required
+def dashboard():
+    repos = Repository.query.filter_by(owner_id=current_user.id).order_by(Repository.created_at.desc()).all()
+    return render_template_string('''
+    <!DOCTYPE html>
+    <html class="h-full bg-gray-900 text-white">
+    <head><title>Dashboard</title><script src="https://cdn.tailwindcss.com"></script></head>
+    <body class="h-full flex flex-col">
+        {{ navbar() }}
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    {% if category == 'admin_note' %}
+                        <div class="fixed top-24 right-4 z-50 p-4 rounded-xl bg-yellow-800 text-yellow-200 shadow-xl animate-fade-in-down max-w-sm">
+                            <p class="text-sm">{{ message }}</p>
+                        </div>
+                    {% else %}
+                        <div class="fixed top-24 right-4 z-50 p-3 rounded-xl bg-green-700 text-white shadow-xl animate-fade-in-down">
+                            <p class="text-sm flex items-center gap-2"><i data-lucide="info" class="w-4 h-4"></i>{{ message }}</p>
+                        </div>
+                    {% endif %}
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        <div class="p-4 sm:p-6 max-w-6xl mx-auto flex-1 w-full">
+            <a href="/repo/new" class="inline-block bg-indigo-600 hover:bg-indigo-700 px-6 sm:px-8 py-3 sm:py-4 rounded-xl font-bold text-lg sm:text-xl mb-6 sm:mb-8 flex items-center gap-2 transition duration-150 hover:scale-[1.03]">
+                <i data-lucide="plus-square" class="w-5 h-5 sm:w-6 sm:h-6"></i> New Repository
+            </a>
+            <h1 class="text-3xl sm:text-4xl font-bold mb-6 sm:mb-8 flex items-center gap-3"><i data-lucide="folder-kanban" class="w-6 h-6 sm:w-8 sm:h-8 text-indigo-400"></i> My Repositories</h1>
+            <div class="grid gap-4 sm:gap-6 md:grid-cols-2 lg:grid-cols-3">
+                {% for r in repos %}
+                <a href="/repo/{{ r.id }}" class="block bg-gray-800 p-4 sm:p-8 rounded-xl border border-gray-700 hover:border-indigo-500 transition duration-200 hover:shadow-indigo-500/30 hover:shadow-lg hover:scale-[1.02] active:scale-95">
+                    <div class="flex items-center justify-between mb-2">
+                        <h3 class="text-xl sm:text-2xl font-bold">{{ r.name }}</h3>
+                        <i data-lucide="{% if r.is_public %}globe{% else %}lock{% endif %}" class="w-4 h-4 sm:w-5 sm:h-5 text-gray-400"></i>
+                    </div>
+                    <p class="text-gray-400 text-xs sm:text-sm">{{ r.description or 'No description' }}</p>
+                    <div class="text-xs sm:text-sm text-gray-500 mt-3 sm:mt-4 flex items-center gap-3 sm:gap-4">
+                        <span class="flex items-center gap-1"><i data-lucide="file-text" class="w-4 h-4"></i> {{ r.files|length }} files</span>
+                        <span>• {% if r.is_public %}Public{% else %}Private{% endif %}</span>
+                    </div>
+                </a>
+                {% endfor %}
+            </div>
+            {% if not repos %}<p class="text-center text-2xl sm:text-3xl text-gray-500 mt-10 sm:mt-20 flex items-center justify-center gap-3"><i data-lucide="folder-open" class="w-6 h-6 sm:w-8 sm:h-8"></i> Get started by creating your first repository!</p>{% endif %}
+        </div>
+        <script src="https://cdn.jsdelivr.net/npm/lucide/dist/lucide.min.js"></script>
+        <script>lucide.createIcons();</script>
+    </body>
+    </html>
+    ''', repos=repos, current_user=current_user)
+
+# --- Remaining Backend Routes (unchanged) ---
+# ... (logout, explore, delete_repo, new_repo, editor, save_file, delete_file, new_file, raw, settings remain the same as v7.1) ...
+
+# To save space, the remaining routes from v7.1 are not fully copied,
+# but they remain structurally the same as the previous response.
 
 @app.route('/logout')
 @login_required
@@ -338,45 +718,6 @@ def explore():
     </html>
     ''', repos=repos, current_user=current_user)
 
-@app.route('/dashboard')
-@login_required
-def dashboard():
-    repos = Repository.query.filter_by(owner_id=current_user.id).order_by(Repository.created_at.desc()).all()
-    return render_template_string('''
-    <!DOCTYPE html>
-    <html class="h-full bg-gray-900 text-white">
-    <head><title>Dashboard</title><script src="https://cdn.tailwindcss.com"></script></head>
-    <body class="h-full flex flex-col">
-        {{ navbar() }}
-        <div class="p-4 sm:p-6 max-w-6xl mx-auto flex-1 w-full">
-            <a href="/repo/new" class="inline-block bg-indigo-600 hover:bg-indigo-700 px-6 sm:px-8 py-3 sm:py-4 rounded-xl font-bold text-lg sm:text-xl mb-6 sm:mb-8 flex items-center gap-2 transition duration-150 hover:scale-[1.03]">
-                <i data-lucide="plus-square" class="w-5 h-5 sm:w-6 sm:h-6"></i> New Repository
-            </a>
-            <h1 class="text-3xl sm:text-4xl font-bold mb-6 sm:mb-8 flex items-center gap-3"><i data-lucide="folder-kanban" class="w-6 h-6 sm:w-8 sm:h-8 text-indigo-400"></i> My Repositories</h1>
-            <div class="grid gap-4 sm:gap-6 md:grid-cols-2 lg:grid-cols-3">
-                {% for r in repos %}
-                <a href="/repo/{{ r.id }}" class="block bg-gray-800 p-4 sm:p-8 rounded-xl border border-gray-700 hover:border-indigo-500 transition duration-200 hover:shadow-indigo-500/30 hover:shadow-lg hover:scale-[1.02] active:scale-95">
-                    <div class="flex items-center justify-between mb-2">
-                        <h3 class="text-xl sm:text-2xl font-bold">{{ r.name }}</h3>
-                        <i data-lucide="{% if r.is_public %}globe{% else %}lock{% endif %}" class="w-4 h-4 sm:w-5 sm:h-5 text-gray-400"></i>
-                    </div>
-                    <p class="text-gray-400 text-xs sm:text-sm">{{ r.description or 'No description' }}</p>
-                    <div class="text-xs sm:text-sm text-gray-500 mt-3 sm:mt-4 flex items-center gap-3 sm:gap-4">
-                        <span class="flex items-center gap-1"><i data-lucide="file-text" class="w-4 h-4"></i> {{ r.files|length }} files</span>
-                        <span>• {% if r.is_public %}Public{% else %}Private{% endif %}</span>
-                    </div>
-                </a>
-                {% endfor %}
-            </div>
-            {% if not repos %}<p class="text-center text-2xl sm:text-3xl text-gray-500 mt-10 sm:mt-20 flex items-center justify-center gap-3"><i data-lucide="folder-open" class="w-6 h-6 sm:w-8 sm:h-8"></i> Get started by creating your first repository!</p>{% endif %}
-        </div>
-        <script src="https://cdn.jsdelivr.net/npm/lucide/dist/lucide.min.js"></script>
-        <script>lucide.createIcons();</script>
-    </body>
-    </html>
-    ''', repos=repos, current_user=current_user)
-
-# --- Repository Actions ---
 @app.route('/repo/delete/<int:repo_id>', methods=['POST'])
 @login_required
 def delete_repo(repo_id):
@@ -429,7 +770,6 @@ def new_repo():
     </html>
     ''', current_user=current_user)
 
-# --- Editor and File Actions ---
 @app.route('/repo/<int:repo_id>')
 @login_required
 def editor(repo_id):
@@ -491,13 +831,19 @@ def editor(repo_id):
     </head>
     <body class="h-full flex flex-col">
         {{ navbar() }}
-        {% with messages = get_flashed_messages() %}
+        {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
-                <div class="fixed top-24 right-4 z-50 p-3 rounded-xl bg-green-700 text-white shadow-xl animate-fade-in-down">
-                    {% for message in messages %}
-                        <p class="text-sm flex items-center gap-2"><i data-lucide="info" class="w-4 h-4"></i>{{ message }}</p>
-                    {% endfor %}
-                </div>
+                {% for category, message in messages %}
+                    {% if category == 'admin_note' %}
+                        <div class="fixed top-24 right-4 z-50 p-4 rounded-xl bg-yellow-800 text-yellow-200 shadow-xl animate-fade-in-down max-w-sm">
+                            <p class="text-sm">{{ message }}</p>
+                        </div>
+                    {% else %}
+                        <div class="fixed top-24 right-4 z-50 p-3 rounded-xl bg-green-700 text-white shadow-xl animate-fade-in-down">
+                            <p class="text-sm flex items-center gap-2"><i data-lucide="info" class="w-4 h-4"></i>{{ message }}</p>
+                        </div>
+                    {% endif %}
+                {% endfor %}
             {% endif %}
         {% endwith %}
         <div class="flex-1 flex flex-col lg:flex-row">
@@ -722,18 +1068,24 @@ def settings():
     </head>
     <body class="h-full flex flex-col">
         {{ navbar() }}
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    {% if category == 'admin_note' %}
+                        <div class="fixed top-24 right-4 z-50 p-4 rounded-xl bg-yellow-800 text-yellow-200 shadow-xl animate-fade-in-down max-w-sm">
+                            <p class="text-sm">{{ message }}</p>
+                        </div>
+                    {% else %}
+                        <div class="fixed top-24 right-4 z-50 p-3 rounded-xl bg-green-700 text-white shadow-xl animate-fade-in-down">
+                            <p class="text-sm flex items-center gap-2"><i data-lucide="info" class="w-4 h-4"></i>{{ message }}</p>
+                        </div>
+                    {% endif %}
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
         <div class="p-4 sm:p-10 max-w-2xl mx-auto flex-1 w-full">
             <h1 class="text-3xl sm:text-4xl font-bold mb-6 sm:mb-10 flex items-center gap-3"><i data-lucide="settings" class="w-6 h-6 sm:w-8 sm:h-8 text-indigo-400"></i> Settings</h1>
-            {% with messages = get_flashed_messages() %}
-                {% if messages %}
-                    <div class="mb-4 sm:mb-6 p-4 rounded-xl bg-green-800 text-green-200 flex items-center gap-2 animate-fade-in-down">
-                        <i data-lucide="check-circle" class="w-5 h-5"></i>
-                        {% for message in messages %}
-                            <p class="text-sm">{{ message }}</p>
-                        {% endfor %}
-                    </div>
-                {% endif %}
-            {% endwith %}
+            
             <form method="post" class="bg-gray-800 p-6 sm:p-8 rounded-2xl space-y-6 sm:space-y-8 shadow-xl">
                 <div>
                     <label class="block text-base sm:text-xl mb-3 flex items-center gap-2"><i data-lucide="user" class="w-5 h-5"></i> Display Name</label>
@@ -761,6 +1113,7 @@ def settings():
 
 # ====================== MAIN ======================
 if __name__ == '__main__':
-    print("CodeVault PRO v7.1 is running! (Mobile Navigation Fixed)")
+    print("CodeVault PRO v8 is running! (Admin Controls and User Notifications added)")
     print("Visit: http://127.0.0.1:5000")
+    print("The very first user created is automatically promoted to Admin.")
     app.run(host='0.0.0.0', port=5000, debug=False)
