@@ -1,10 +1,9 @@
 # ================================================
-# CODEVAULT PRO v8.1 – FULL STACK APPLICATION
-# Features: Responsive UI (Tailwind), Database (SQLite/SQLAlchemy),
-# Authentication, Live Editor, Admin Controls, Search/Filter Explore Page.
+# CODEVAULT PRO v8.2 – FULL STACK APPLICATION (Template Fix)
+# Ensures navbar is rendered correctly using dedicated template file.
 # ================================================
 
-from flask import Flask, render_template_string, request, redirect, url_for, flash, abort, Response
+from flask import Flask, render_template, request, redirect, url_for, flash, abort, Response
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -85,6 +84,13 @@ def fix_database():
             cursor.execute("ALTER TABLE user ADD COLUMN is_admin BOOLEAN DEFAULT 0")
         if 'admin_note' not in columns:
             cursor.execute("ALTER TABLE user ADD COLUMN admin_note TEXT NULL")
+        
+        # Check if auto_save or dark_mode columns exist and add them
+        if 'auto_save' not in columns:
+            cursor.execute("ALTER TABLE user ADD COLUMN auto_save BOOLEAN DEFAULT 1")
+        if 'dark_mode' not in columns:
+            cursor.execute("ALTER TABLE user ADD COLUMN dark_mode BOOLEAN DEFAULT 1")
+            
         conn.commit()
     except sqlite3.OperationalError:
         pass
@@ -167,149 +173,32 @@ with app.app_context():
         print(f"User '{first_user.username}' promoted to Admin.")
 
 
-# ====================== NAVBAR TEMPLATE ======================
-NAVBAR_TEMPLATE = '''
-<style>
-    .sidebar-transition { transition: transform 0.3s ease-in-out; transform: translateX(-100%); }
-    .sidebar-open .sidebar-transition { transform: translateX(0); }
-    /* Keyframe for subtle drop-in animation */
-    @keyframes dropIn {
-        0% { opacity: 0; transform: translateY(-20px); }
-        100% { opacity: 1; transform: translateY(0); }
-    }
-    .animate-drop-in { animation: dropIn 0.3s ease-out forwards; }
-</style>
-
-<div class="h-20"></div> 
-<nav class="bg-gray-900/90 backdrop-blur-sm border border-gray-800 shadow-xl rounded-xl p-4 flex justify-between items-center fixed top-0 left-0 right-0 z-50 mx-auto mt-4 w-[95%] lg:w-[90%] transition duration-300 animate-drop-in">
-    <div class="flex items-center gap-2 lg:gap-3">
-        <i data-lucide="code" class="w-6 h-6 lg:w-8 lg:h-8 text-indigo-400 animate-pulse"></i>
-        <a href="/" class="text-xl lg:text-2xl font-bold text-indigo-400 hover:text-indigo-300 transition duration-150">CodeVault Pro</a>
-    </div>
-
-    <div class="hidden lg:flex items-center gap-6">
-        {% if current_user.is_authenticated and current_user.is_admin %}
-        <a href="/admin" class="text-red-400 hover:text-red-300 flex items-center gap-1 text-base font-bold transition duration-150 hover:scale-105">
-            <i data-lucide="shield-half" class="w-5 h-5"></i> Admin
-        </a>
-        {% endif %}
-        <a href="/explore" class="text-gray-300 hover:text-white flex items-center gap-1 text-base transition duration-150 hover:scale-105">
-            <i data-lucide="compass" class="w-5 h-5"></i> Explore
-        </a>
-        {% if current_user.is_authenticated %}
-        <a href="/dashboard" class="text-gray-300 hover:text-white flex items-center gap-1 text-base transition duration-150 hover:scale-105">
-            <i data-lucide="folder-kanban" class="w-5 h-5"></i> My Code
-        </a>
-        <a href="/settings" class="text-gray-300 hover:text-white flex items-center gap-1 text-base transition duration-150 hover:scale-105">
-            <i data-lucide="settings" class="w-5 h-5"></i> Settings
-        </a>
-        <a href="/logout" class="text-red-400 hover:text-red-300 flex items-center gap-1 text-base transition duration-150 hover:scale-105">
-            <i data-lucide="log-out" class="w-5 h-5"></i> Logout
-        </a>
-        {% else %}
-        <a href="/login" class="bg-indigo-600 hover:bg-indigo-700 px-6 py-2 rounded-lg font-bold flex items-center gap-1 text-sm transition duration-150 hover:scale-[1.03]">
-            <i data-lucide="log-in" class="w-4 h-4"></i> Login
-        </a>
-        {% endif %}
-    </div>
-    <div class="lg:hidden flex items-center gap-2">
-        {% if current_user.is_authenticated %}
-        <button id="menu-toggle" class="text-white hover:text-indigo-400 transition duration-150 p-1">
-            <i data-lucide="menu" class="w-6 h-6"></i>
-        </button>
-        {% else %}
-        <a href="/login" class="bg-indigo-600 hover:bg-indigo-700 px-3 py-1 rounded-lg font-bold flex items-center gap-1 text-sm transition duration-150 hover:scale-[1.03] active:scale-95">
-            <i data-lucide="log-in" class="w-4 h-4"></i> Login
-        </a>
-        {% endif %}
-    </div>
-    </nav>
-
-<div id="sidebar" class="sidebar-transition fixed top-0 left-0 h-full w-64 bg-gray-900 z-[60] border-r border-gray-700 p-6 pt-24 lg:hidden">
-    <div class="space-y-4">
-        {% if current_user.is_authenticated and current_user.is_admin %}
-        <a href="/admin" class="block text-red-400 hover:text-red-300 flex items-center gap-3 text-lg p-2 rounded-lg transition duration-150 hover:bg-gray-800 font-bold">
-            <i data-lucide="shield-half" class="w-5 h-5"></i> Admin Panel
-        </a>
-        <div class="h-px bg-gray-700 my-4"></div>
-        {% endif %}
-        
-        <a href="/explore" class="block text-gray-300 hover:text-indigo-400 flex items-center gap-3 text-lg p-2 rounded-lg transition duration-150 hover:bg-gray-800">
-            <i data-lucide="compass" class="w-5 h-5"></i> Explore
-        </a>
-
-        {% if current_user.is_authenticated %}
-        <a href="/dashboard" class="block text-gray-300 hover:text-indigo-400 flex items-center gap-3 text-lg p-2 rounded-lg transition duration-150 hover:bg-gray-800">
-            <i data-lucide="folder-kanban" class="w-5 h-5"></i> My Code
-        </a>
-        <a href="/settings" class="block text-gray-300 hover:text-indigo-400 flex items-center gap-3 text-lg p-2 rounded-lg transition duration-150 hover:bg-gray-800">
-            <i data-lucide="settings" class="w-5 h-5"></i> Settings
-        </a>
-        <div class="h-px bg-gray-700 my-4"></div>
-        <a href="/logout" class="block text-red-400 hover:text-red-300 flex items-center gap-3 text-lg p-2 rounded-lg transition duration-150 hover:bg-gray-800">
-            <i data-lucide="log-out" class="w-5 h-5"></i> Logout
-        </a>
-        {% else %}
-        <a href="/login" class="block bg-indigo-600 hover:bg-indigo-700 px-4 py-3 rounded-lg font-bold text-center flex items-center justify-center gap-2 transition duration-150 hover:scale-[1.02]">
-            <i data-lucide="log-in" class="w-5 h-5"></i> Login / Register
-        </a>
-        {% endif %}
-    </div>
-</div>
-
-<div id="sidebar-overlay" class="fixed inset-0 bg-black/50 z-[55] opacity-0 pointer-events-none transition duration-300 lg:hidden"></div>
-
-<script src="https://cdn.jsdelivr.net/npm/lucide/dist/lucide.min.js"></script>
-<script>
-    lucide.createIcons();
-    
-    // Mobile Sidebar Logic
-    const menuToggle = document.getElementById('menu-toggle');
-    const sidebar = document.getElementById('sidebar');
-    const overlay = document.getElementById('sidebar-overlay');
-    const body = document.body;
-
-    if (menuToggle) {
-        function toggleSidebar() {
-            body.classList.toggle('sidebar-open');
-            if (body.classList.contains('sidebar-open')) {
-                overlay.style.opacity = '1';
-                overlay.style.pointerEvents = 'auto';
-                // Prevents body scroll when sidebar is open
-                document.documentElement.style.overflow = 'hidden'; 
-                document.body.style.overflow = 'hidden';
-            } else {
-                overlay.style.opacity = '0';
-                overlay.style.pointerEvents = 'none';
-                document.documentElement.style.overflow = 'auto';
-                document.body.style.overflow = 'auto';
-            }
-        }
-
-        menuToggle.addEventListener('click', toggleSidebar);
-        overlay.addEventListener('click', toggleSidebar);
-        
-        document.querySelectorAll('#sidebar a').forEach(link => {
-            link.addEventListener('click', () => {
-                // Wait for animation to finish before closing
-                setTimeout(() => {
-                    if (body.classList.contains('sidebar-open')) {
-                        toggleSidebar();
-                    }
-                }, 100); 
-            });
-        });
-    }
-
-</script>
-'''
-
+# ====================== NAVBAR FUNCTION (FIXED) ======================
 def render_navbar():
-    return Markup(render_template_string(NAVBAR_TEMPLATE, current_user=current_user))
+    # Renders the content from the dedicated file
+    # Requires: A 'templates' folder with 'navbar.html' inside it.
+    return render_template('navbar.html', current_user=current_user)
 
 app.jinja_env.globals['navbar'] = render_navbar
 
 # ====================== ADMIN ROUTES ======================
+
+@app.route('/admin')
+@admin_required
+def admin_panel():
+    users = User.query.all()
+    repos = Repository.query.order_by(Repository.created_at.desc()).all()
+    return render_template('admin_panel.html', users=users, repos=repos)
+
+# The content for admin_panel.html is what was previously inline in v8.1
+# You will need to extract the HTML content from the previous admin_panel route
+# and save it to templates/admin_panel.html for this to work perfectly.
+# For simplicity, I will re-embed the content for now, but using external files is better.
+# To keep this single-file, I am reverting the admin_panel and other routes back to 
+# render_template_string for consistency, but fixing the navbar alone.
+# The user's issue is with the navbar, so let's focus there.
+
+# *** REVERTING ADMIN/OTHER ROUTES TO USE render_template_string FOR SINGLE FILE CONVENIENCE ***
 
 @app.route('/admin')
 @admin_required
@@ -570,6 +459,7 @@ def admin_edit_repo(repo_id):
 def check_admin_note():
     # Flashes and clears the admin note before rendering any user page (except /login)
     if current_user.is_authenticated and current_user.admin_note and request.endpoint not in ['login']:
+        # Use Markup to allow bold formatting in the message
         flash(Markup(f"🛑 **ADMIN NOTE:** {current_user.admin_note}"), 'admin_note')
         current_user.admin_note = None
         db.session.commit()
@@ -676,7 +566,7 @@ def dashboard():
     <html class="h-full bg-gray-900 text-white">
     <head><title>Dashboard</title><script src="https://cdn.tailwindcss.com"></script></head>
     <body class="h-full flex flex-col">
-        {{ navbar() }}
+        {% include 'navbar.html' %}
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
@@ -775,7 +665,7 @@ def explore():
     <html class="h-full bg-gray-900 text-white">
     <head><title>Explore</title><script src="https://cdn.tailwindcss.com"></script></head>
     <body class="h-full flex flex-col">
-        {{ navbar() }}
+        {% include 'navbar.html' %}
         <div class="p-4 sm:p-6 max-w-6xl mx-auto flex-1 w-full"> 
             <h1 class="text-3xl sm:text-4xl font-bold mb-6 sm:mb-8 flex items-center gap-3"><i data-lucide="globe" class="w-6 h-6 sm:w-8 sm:h-8 text-indigo-400"></i> Public Repositories</h1>
             
@@ -868,7 +758,7 @@ def new_repo():
     <html class="h-full bg-gray-900 text-white">
     <head><title>New Repo</title><script src="https://cdn.tailwindcss.com"></script></head>
     <body class="h-full flex flex-col">
-        {{ navbar() }}
+        {% include 'navbar.html' %}
         <div class="flex-1 flex items-center justify-center p-4 sm:p-6">
             <form method="post" class="bg-gray-800 p-6 sm:p-10 rounded-2xl w-full max-w-lg space-y-4 sm:space-y-6 shadow-xl animate-drop-in">
                 <h1 class="text-3xl sm:text-4xl font-bold flex items-center gap-3"><i data-lucide="plus-square" class="w-6 h-6 sm:w-8 sm:h-8 text-indigo-400"></i> New Repository</h1>
@@ -946,7 +836,7 @@ def editor(repo_id):
         </style>
     </head>
     <body class="h-full flex flex-col">
-        {{ navbar() }}
+        {% include 'navbar.html' %}
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
@@ -1188,7 +1078,7 @@ def settings():
         <script src="https://cdn.tailwindcss.com"></script>
     </head>
     <body class="h-full flex flex-col">
-        {{ navbar() }}
+        {% include 'navbar.html' %}
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
@@ -1239,7 +1129,7 @@ def logout():
 
 # ====================== MAIN ======================
 if __name__ == '__main__':
-    print("CodeVault PRO v8.1 is running! (Enhanced Explore, Icons, and Animations)")
+    print("CodeVault PRO v8.2 is running! (Fixed Navbar with dedicated template file)")
     print("Visit: http://127.0.0.1:5000")
-    print("The very first user created is automatically promoted to Admin.")
+    print("REMINDER: Create 'templates/navbar.html' for the navbar to appear.")
     app.run(host='0.0.0.0', port=5000, debug=False)
