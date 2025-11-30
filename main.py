@@ -1,5 +1,5 @@
 # ================================================
-# CODEVAULT PRO v4 – FULL SINGLE-FILE (FLOATY NAVBAR)
+# CODEVAULT PRO v4 – FULL SINGLE-FILE (FLOATY NAVBAR + AUTO-REGISTER)
 # ================================================
 
 from flask import Flask, render_template_string, request, redirect, url_for, flash, abort, Response
@@ -21,8 +21,7 @@ db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
-# (MODELS and FIX_DATABASE functions remain unchanged)
-
+# ====================== MODELS ======================
 class User(UserMixin, db.Model):
     __tablename__ = 'user'
     id = db.Column(db.Integer, primary_key=True)
@@ -54,6 +53,7 @@ class CodeFile(db.Model):
 def load_user(user_id):
     return User.query.get(int(user_id))
 
+# ====================== FIX OLD DB ======================
 def fix_database():
     if not os.path.exists('codevault.db'):
         return
@@ -70,22 +70,13 @@ def fix_database():
     conn.commit()
     conn.close()
 
-# ====================== STARTUP ======================
+# ====================== STARTUP (Removed demo user) ======================
 with app.app_context():
     db.create_all()
     fix_database()
-    if not User.query.filter_by(username='demo').first():
-        demo = User(
-            username='demo',
-            display_name='Demo User',
-            password=generate_password_hash('demo'),
-            auto_save=True,
-            dark_mode=True
-        )
-        db.session.add(demo)
-        db.session.commit()
+    # Removed the creation of 'demo' user to make it a real-user system.
 
-# ====================== NAVBAR (FLOATY CSS APPLIED) ======================
+# ====================== NAVBAR (Floaty CSS Applied) ======================
 NAVBAR_TEMPLATE = '''
 <div class="h-20"></div> <nav class="bg-gray-900/90 backdrop-blur-sm border border-gray-800 shadow-xl rounded-xl p-4 flex justify-between items-center fixed top-0 left-0 right-0 z-50 mx-auto mt-4 w-[95%] lg:w-[90%]">
     <div class="flex items-center gap-3">
@@ -117,19 +108,14 @@ NAVBAR_TEMPLATE = '''
 <script>lucide.createIcons();</script>
 '''
 
-# Define a function to render the navbar template
 def render_navbar():
     # render_template_string executes the Jinja logic, and we use Markup to mark it as safe HTML
     return Markup(render_template_string(NAVBAR_TEMPLATE, current_user=current_user))
 
-# Register the function globally so templates can call it as {{ navbar() }}
 app.jinja_env.globals['navbar'] = render_navbar
 
 
 # ====================== ROUTES ======================
-
-# (The rest of the routes are updated to use {{ navbar() }} and remain structurally the same)
-
 @app.route('/')
 def index():
     return redirect('/explore')
@@ -138,24 +124,65 @@ def index():
 def login():
     if current_user.is_authenticated:
         return redirect('/dashboard')
+    
     if request.method == 'POST':
-        user = User.query.filter_by(username=request.form['username']).first()
-        if user and check_password_hash(user.password, request.form['password']):
-            login_user(user)
+        username = request.form['username']
+        password = request.form['password']
+        
+        user = User.query.filter_by(username=username).first()
+        
+        if user:
+            # SCENARIO 1 & 2: User exists
+            if check_password_hash(user.password, password):
+                # SCENARIO 1: Successful login
+                login_user(user)
+                flash('Login successful!')
+                return redirect('/dashboard')
+            else:
+                # SCENARIO 2: Incorrect password
+                flash('Incorrect password for existing account.')
+                return redirect(url_for('login'))
+        else:
+            # SCENARIO 3: User does not exist, auto-register them
+            if len(username) < 3 or len(password) < 6:
+                flash('Username must be at least 3 characters and password at least 6 characters.')
+                return redirect(url_for('login'))
+                
+            new_user = User(
+                username=username,
+                password=generate_password_hash(password),
+                display_name=username.capitalize() # Default display name
+            )
+            db.session.add(new_user)
+            db.session.commit()
+            
+            # Log the newly created user in
+            login_user(new_user)
+            flash(f'Welcome! Account for "{username}" created and you are logged in.')
             return redirect('/dashboard')
-        flash('Invalid credentials')
+
     return render_template_string('''
     <!DOCTYPE html>
     <html class="h-full bg-gray-900 text-white">
-    <head><title>Login - CodeVault</title><meta name="viewport" content="width=device-width, initial-scale=1"><script src="https://cdn.tailwindcss.com"></script></head>
+    <head><title>Login/Register - CodeVault</title><meta name="viewport" content="width=device-width, initial-scale=1"><script src="https://cdn.tailwindcss.com"></script></head>
     <body class="h-full flex items-center justify-center p-4">
         <div class="bg-gray-800 p-10 rounded-2xl w-full max-w-md shadow-2xl">
             <h1 class="text-5xl font-bold text-center text-indigo-400 mb-8">CodeVault</h1>
+            {% with messages = get_flashed_messages() %}
+                {% if messages %}
+                    <div class="mb-6 p-4 rounded-xl bg-red-800 text-red-200">
+                        {% for message in messages %}
+                            <p>{{ message }}</p>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            {% endwith %}
             <form method="post" class="space-y-6">
-                <input name="username" value="demo" placeholder="Username" required class="w-full px-6 py-4 bg-gray-700 rounded-xl text-lg">
-                <input name="password" type="password" value="demo" placeholder="Password" required class="w-full px-6 py-4 bg-gray-700 rounded-xl text-lg">
-                <button class="w-full py-4 bg-indigo-600 hover:bg-indigo-700 font-bold rounded-xl text-xl">Login → demo/demo</button>
+                <input name="username" placeholder="Username (3+ chars)" required class="w-full px-6 py-4 bg-gray-700 rounded-xl text-lg">
+                <input name="password" type="password" placeholder="Password (6+ chars)" required class="w-full px-6 py-4 bg-gray-700 rounded-xl text-lg">
+                <button class="w-full py-4 bg-indigo-600 hover:bg-indigo-700 font-bold rounded-xl text-xl">Login / Register</button>
             </form>
+            <p class="text-gray-400 text-sm mt-4 text-center">If the username is new, an account will be automatically created.</p>
         </div>
     </body>
     </html>
@@ -438,7 +465,7 @@ def settings():
 
 # ====================== MAIN ======================
 if __name__ == '__main__':
-    print("CodeVault PRO v4 is running!")
+    print("CodeVault PRO v4 is running! (Real User System)")
     print("Visit: http://127.0.0.1:5000")
-    print("Login: demo / demo")
+    print("To get started, use any username/password to auto-register.")
     app.run(host='0.0.0.0', port=5000, debug=False)
