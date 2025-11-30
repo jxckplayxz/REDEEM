@@ -1,9 +1,8 @@
 # ================================================
-# CODEVAULT PRO v8.2 – FULL STACK APPLICATION (Template Fix)
-# Ensures navbar is rendered correctly using dedicated template file.
+# CODEVAULT PRO v8.3 – FULL STACK APPLICATION (All Fixes Applied)
 # ================================================
 
-from flask import Flask, render_template, request, redirect, url_for, flash, abort, Response
+from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, abort, Response
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -175,35 +174,25 @@ with app.app_context():
 
 # ====================== NAVBAR FUNCTION (FIXED) ======================
 def render_navbar():
-    # Renders the content from the dedicated file
-    # Requires: A 'templates' folder with 'navbar.html' inside it.
+    # Renders the content from the dedicated templates/navbar.html file
     return render_template('navbar.html', current_user=current_user)
 
 app.jinja_env.globals['navbar'] = render_navbar
 
 # ====================== ADMIN ROUTES ======================
 
-# The content for admin_panel.html is what was previously inline in v8.1
-# You will need to extract the HTML content from the previous admin_panel route
-# and save it to templates/admin_panel.html for this to work perfectly.
-# For simplicity, I will re-embed the content for now, but using external files is better.
-# To keep this single-file, I am reverting the admin_panel and other routes back to 
-# render_template_string for consistency, but fixing the navbar alone.
-# The user's issue is with the navbar, so let's focus there.
-
-# *** REVERTING ADMIN/OTHER ROUTES TO USE render_template_string FOR SINGLE FILE CONVENIENCE ***
-
 @app.route('/admin')
 @admin_required
 def admin_panel():
     users = User.query.all()
     repos = Repository.query.order_by(Repository.created_at.desc()).all()
+    # Using render_template_string for single-file convenience in a multi-template approach
     return render_template_string('''
     <!DOCTYPE html>
     <html class="h-full bg-gray-900 text-white">
     <head><title>Admin Panel</title><script src="https://cdn.tailwindcss.com"></script></head>
     <body class="h-full flex flex-col">
-        {{ navbar() }}
+        {% include 'navbar.html' %} 
         <div class="p-4 sm:p-8 max-w-6xl mx-auto flex-1 w-full">
             <h1 class="text-4xl font-bold mb-8 flex items-center gap-3 text-red-400"><i data-lucide="shield-half" class="w-8 h-8"></i> Admin Panel</h1>
             {% with messages = get_flashed_messages() %}
@@ -337,7 +326,7 @@ def admin_edit_user(user_id):
     <html class="h-full bg-gray-900 text-white">
     <head><title>Edit User</title><script src="https://cdn.tailwindcss.com"></script></head>
     <body class="h-full flex flex-col">
-        {{ navbar() }}
+        {% include 'navbar.html' %}
         <div class="flex-1 flex items-center justify-center p-4 sm:p-6">
             <form method="post" class="bg-gray-800 p-6 sm:p-10 rounded-2xl w-full max-w-lg space-y-4 sm:space-y-6 shadow-xl animate-drop-in">
                 <h1 class="text-3xl sm:text-4xl font-bold flex items-center gap-3 text-red-400"><i data-lucide="settings-2" class="w-6 h-6 sm:w-8 sm:h-8"></i> Edit User: {{ user.username }}</h1>
@@ -409,7 +398,7 @@ def admin_edit_repo(repo_id):
     <html class="h-full bg-gray-900 text-white">
     <head><title>Edit Repository</title><script src="https://cdn.tailwindcss.com"></script></head>
     <body class="h-full flex flex-col">
-        {{ navbar() }}
+        {% include 'navbar.html' %}
         <div class="flex-1 flex items-center justify-center p-4 sm:p-6">
             <form method="post" class="bg-gray-800 p-6 sm:p-10 rounded-2xl w-full max-w-lg space-y-4 sm:space-y-6 shadow-xl animate-drop-in">
                 <h1 class="text-3xl sm:text-4xl font-bold flex items-center gap-3 text-red-400"><i data-lucide="settings-2" class="w-6 h-6 sm:w-8 sm:h-8"></i> Edit Repo: {{ repo.name }}</h1>
@@ -644,6 +633,7 @@ def explore():
              known_extensions = list(LANGUAGE_MAP.keys())
              
              # Filter repositories that have at least one file whose extension is NOT known
+             # This logic is complex and might need refinement for edge cases, but covers the general intent
              query = query.filter(Repository.files.any(~CodeFile.name.ilike('%.%', escape='\\')) | ~Repository.files.any(or_(*[CodeFile.name.ilike(f'%.{ext.lstrip(".")}') for ext in known_extensions])))
 
     # Final result set
@@ -1122,7 +1112,7 @@ def logout():
 
 # ====================== MAIN ======================
 if __name__ == '__main__':
-    print("CodeVault PRO v8.2 is running! (Fixed Navbar with dedicated template file)")
+    print("CodeVault PRO v8.3 is running! (All fixes applied)")
     print("Visit: http://127.0.0.1:5000")
-    print("REMINDER: Create 'templates/navbar.html' for the navbar to appear.")
+    print("REMINDER: Make sure you have a 'templates' folder with 'navbar.html' inside it.")
     app.run(host='0.0.0.0', port=5000, debug=False)
