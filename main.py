@@ -1,5 +1,6 @@
 # ================================================
-# CODEVAULT PRO v8.3 – FULL STACK APPLICATION (All Fixes Applied)
+# CODEVAULT PRO v8.3 – FINAL CONSOLIDATED CODE
+# Ensures correct templating and admin structure.
 # ================================================
 
 from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, abort, Response
@@ -13,7 +14,8 @@ from markupsafe import Markup
 import json 
 import html
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import or_ # Needed for advanced searching
+from sqlalchemy import or_ 
+from pathlib import Path # Used for ensuring template paths exist
 
 # ====================== APP SETUP ======================
 app = Flask(__name__)
@@ -35,8 +37,6 @@ class User(UserMixin, db.Model):
     auto_save = db.Column(db.Boolean, default=True)
     dark_mode = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
-    # --- ADMIN FIELDS ---
     is_admin = db.Column(db.Boolean, default=False)
     admin_note = db.Column(db.Text, nullable=True) 
 
@@ -83,8 +83,6 @@ def fix_database():
             cursor.execute("ALTER TABLE user ADD COLUMN is_admin BOOLEAN DEFAULT 0")
         if 'admin_note' not in columns:
             cursor.execute("ALTER TABLE user ADD COLUMN admin_note TEXT NULL")
-        
-        # Check if auto_save or dark_mode columns exist and add them
         if 'auto_save' not in columns:
             cursor.execute("ALTER TABLE user ADD COLUMN auto_save BOOLEAN DEFAULT 1")
         if 'dark_mode' not in columns:
@@ -98,25 +96,11 @@ def fix_database():
 
 # Maps file extension to common language for Prism highlighting and filtering
 LANGUAGE_MAP = {
-    '.py': 'Python',
-    '.js': 'JavaScript',
-    '.mjs': 'JavaScript',
-    '.cjs': 'JavaScript',
-    '.ts': 'TypeScript',
-    '.html': 'HTML',
-    '.htm': 'HTML',
-    '.css': 'CSS',
-    '.scss': 'CSS',
-    '.less': 'CSS',
-    '.json': 'JSON',
-    '.md': 'Markdown',
-    '.markdown': 'Markdown',
-    '.sh': 'Bash',
-    '.txt': 'Text',
-    '.c': 'C',
-    '.cpp': 'C++',
-    '.java': 'Java',
-    '.php': 'PHP'
+    '.py': 'Python', '.js': 'JavaScript', '.mjs': 'JavaScript', '.cjs': 'JavaScript',
+    '.ts': 'TypeScript', '.html': 'HTML', '.htm': 'HTML', '.css': 'CSS',
+    '.scss': 'CSS', '.less': 'CSS', '.json': 'JSON', '.md': 'Markdown', 
+    '.markdown': 'Markdown', '.sh': 'Bash', '.txt': 'Text', '.c': 'C', 
+    '.cpp': 'C++', '.java': 'Java', '.php': 'PHP'
 }
 
 def get_prism_language(filename):
@@ -130,13 +114,12 @@ def get_prism_language(filename):
     elif lang == 'JSON': return 'json'
     elif lang == 'Markdown': return 'markdown'
     elif lang == 'Bash': return 'bash'
-    elif lang in ['C', 'C++', 'Java']: return lang.lower()
+    elif lang in ['C', 'C++', 'Java', 'PHP']: return lang.lower()
     else: return 'clike' 
 
 def get_file_icon(filename):
     ext = os.path.splitext(filename)[1].lower()
-    if ext in ['.py']: return 'file-code'
-    elif ext in ['.js', '.mjs', '.cjs', '.ts']: return 'file-code'
+    if ext in ['.py', '.js', '.mjs', '.cjs', '.ts']: return 'file-code'
     elif ext in ['.html', '.htm']: return 'file-html'
     elif ext in ['.css', '.scss', '.less']: return 'file-css'
     elif ext in ['.json']: return 'file-json'
@@ -160,6 +143,8 @@ app.jinja_env.globals['LANGUAGE_MAP'] = LANGUAGE_MAP
 
 # ====================== STARTUP ======================
 with app.app_context():
+    # Ensure the templates folder exists to prevent deployment issues
+    Path('templates').mkdir(exist_ok=True)
     db.create_all()
     fix_database() # Applies migration logic
     
@@ -173,20 +158,22 @@ with app.app_context():
 
 
 # ====================== NAVBAR FUNCTION (FIXED) ======================
+# This is the function that is called by {% include 'navbar.html' %} inside the template strings
 def render_navbar():
     # Renders the content from the dedicated templates/navbar.html file
+    # This is the line that will fail if templates/navbar.html is missing
     return render_template('navbar.html', current_user=current_user)
 
 app.jinja_env.globals['navbar'] = render_navbar
 
 # ====================== ADMIN ROUTES ======================
 
+# --- ONLY ONE DEFINITION OF admin_panel IS LEFT, FIXING AssertionError ---
 @app.route('/admin')
 @admin_required
 def admin_panel():
     users = User.query.all()
     repos = Repository.query.order_by(Repository.created_at.desc()).all()
-    # Using render_template_string for single-file convenience in a multi-template approach
     return render_template_string('''
     <!DOCTYPE html>
     <html class="h-full bg-gray-900 text-white">
@@ -435,13 +422,12 @@ def admin_edit_repo(repo_id):
     ''', repo=repo, current_user=current_user)
 
 
-# ====================== USER ROUTES (UPDATED WITH NOTE CHECK) ======================
+# ====================== USER ROUTES ======================
 
 @app.before_request
 def check_admin_note():
     # Flashes and clears the admin note before rendering any user page (except /login)
     if current_user.is_authenticated and current_user.admin_note and request.endpoint not in ['login']:
-        # Use Markup to allow bold formatting in the message
         flash(Markup(f"🛑 **ADMIN NOTE:** {current_user.admin_note}"), 'admin_note')
         current_user.admin_note = None
         db.session.commit()
@@ -467,7 +453,6 @@ def login():
             if check_password_hash(user.password, password):
                 login_user(user)
                 
-                # Check for admin note immediately after successful login
                 if user.admin_note:
                     flash(Markup(f"🛑 **ADMIN NOTE:** {user.admin_note}"), 'admin_note')
                     user.admin_note = None
@@ -489,7 +474,6 @@ def login():
                 display_name=username.capitalize()
             )
             try:
-                # If this is the very first user, promote them to Admin.
                 if User.query.count() == 0:
                      new_user.is_admin = True
                      new_user.display_name = "👑 Admin"
@@ -612,29 +596,15 @@ def explore():
         query = query.filter(or_(
             Repository.name.ilike(search_pattern),
             Repository.description.ilike(search_pattern),
-            User.username.ilike(search_pattern) # Search owner name too
+            User.username.ilike(search_pattern) 
         )).join(User)
 
     # Apply language filter
     if language_filter:
-        if language_filter != 'Other':
-            # Find all files whose name ends with one of the extensions mapped to the filter language
-            extensions = [ext for ext, lang in LANGUAGE_MAP.items() if lang == language_filter]
-            
-            # Construct OR clauses for extensions
-            ext_filters = [CodeFile.name.ilike(f'%.{ext.lstrip(".")}') for ext in extensions]
-            
-            if ext_filters:
-                # Filter repositories that have at least one file matching the extension criteria
-                query = query.filter(Repository.files.any(or_(*ext_filters)))
-            
-        else:
-             # Handle 'Other' - files whose extension is not in the LANGUAGE_MAP keys
-             known_extensions = list(LANGUAGE_MAP.keys())
-             
-             # Filter repositories that have at least one file whose extension is NOT known
-             # This logic is complex and might need refinement for edge cases, but covers the general intent
-             query = query.filter(Repository.files.any(~CodeFile.name.ilike('%.%', escape='\\')) | ~Repository.files.any(or_(*[CodeFile.name.ilike(f'%.{ext.lstrip(".")}') for ext in known_extensions])))
+        extensions = [ext for ext, lang in LANGUAGE_MAP.items() if lang == language_filter]
+        ext_filters = [CodeFile.name.ilike(f'%{ext}') for ext in extensions]
+        if ext_filters:
+            query = query.filter(Repository.files.any(or_(*ext_filters)))
 
     # Final result set
     repos = query.order_by(Repository.created_at.desc()).all()
@@ -1112,7 +1082,7 @@ def logout():
 
 # ====================== MAIN ======================
 if __name__ == '__main__':
-    print("CodeVault PRO v8.3 is running! (All fixes applied)")
+    print("CodeVault PRO v8.3 is running! (Final fixed code)")
     print("Visit: http://127.0.0.1:5000")
-    print("REMINDER: Make sure you have a 'templates' folder with 'navbar.html' inside it.")
+    print("CRITICAL: Ensure 'templates/navbar.html' exists in your project.")
     app.run(host='0.0.0.0', port=5000, debug=False)
