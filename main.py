@@ -25,7 +25,8 @@ def index():
                            firebase_config=firebase_config_json,
                            initial_auth_token=initial_auth_token)
 
-if __name__ == '__main__':
-    # Flask runs on port 8080 by default in this environment
-    app.run(host='0.0.0.0', port=8080)
-
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    print(f"VIXN 2025 AUTO-CONFIRM SHOP RUNNING ON PORT {port}")
+    print(f"BTC Wallet: {BTC_WALLET}")
+    app.run(host="0.0.0.0", port=port, debug=False)
