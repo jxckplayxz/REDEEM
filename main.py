@@ -767,7 +767,7 @@ def explore():
     repos = query.order_by(Repository.created_at.desc()).all()
     
     # Get a list of all unique languages across all public repositories for filter dropdown
-    all_languages = sorted(list(set(LANGUAGE_map.values())))
+    all_languages = sorted(list(set(LANGUAGE_MAP.values())))
 
 
     return render_template_string('''
