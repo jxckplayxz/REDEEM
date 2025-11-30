@@ -88,7 +88,7 @@ with app.app_context():
 app.jinja_env.globals['navbar'] = '''
 <nav class="bg-gray-900 border-b border-gray-800 px-4 py-3 flex justify-between items-center sticky top-0 z-50">
     <div class="flex items-center gap-3">
-        <!-- CodeVault Logo Icon -->
+        <!-- CodeVault Logo -->
         <i data-lucide="code" class="w-8 h-8 text-indigo-400"></i>
         <a href="/" class="text-2xl font-bold text-indigo-400 hover:text-indigo-300">CodeVault</a>
     </div>
