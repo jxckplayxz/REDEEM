@@ -356,12 +356,18 @@ def new_file():
 @app.route('/raw/<int:repo_id>/<int:file_id>')
 def raw(repo_id, file_id):
     f = CodeFile.query.get_or_404(file_id)
+    # Only allow if public or owner
     if not f.repo.is_public and (not current_user.is_authenticated or f.repo.owner_id != current_user.id):
         abort(403)
+
+    # CRITICAL: Force download to prevent XSS
     return Response(
         f.content,
         mimetype='text/plain',
-        headers={'Content-Disposition': f'attachment; filename="{f.name}"'}
+        headers={
+            'Content-Disposition': f'attachment; filename="{f.name}"'
+        }
+    )
 
 # ====================== SETTINGS ======================
 @app.route('/settings', methods=['GET', 'POST'])
