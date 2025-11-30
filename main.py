@@ -61,6 +61,4 @@ def index():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    print(f"VIXN 2025 AUTO-CONFIRM SHOP RUNNING ON PORT {port}")
-    print(f"BTC Wallet: {BTC_WALLET}")
     app.run(host="0.0.0.0", port=port, debug=False)
