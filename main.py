@@ -1,7 +1,7 @@
 # ================================================
-# CODEVAULT PRO v8 – FULL STACK APPLICATION
+# CODEVAULT PRO v8.1 – FULL STACK APPLICATION
 # Features: Responsive UI (Tailwind), Database (SQLite/SQLAlchemy),
-# Authentication, Live Editor (Prism.js), Admin Controls, User Notifications.
+# Authentication, Live Editor, Admin Controls, Search/Filter Explore Page.
 # ================================================
 
 from flask import Flask, render_template_string, request, redirect, url_for, flash, abort, Response
@@ -15,6 +15,7 @@ from markupsafe import Markup
 import json 
 import html
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import or_ # Needed for advanced searching
 
 # ====================== APP SETUP ======================
 app = Flask(__name__)
@@ -39,7 +40,7 @@ class User(UserMixin, db.Model):
     
     # --- ADMIN FIELDS ---
     is_admin = db.Column(db.Boolean, default=False)
-    admin_note = db.Column(db.Text, nullable=True) # Message for the user to read
+    admin_note = db.Column(db.Text, nullable=True) 
 
 class Repository(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -90,21 +91,47 @@ def fix_database():
     finally:
         conn.close()
 
+# Maps file extension to common language for Prism highlighting and filtering
+LANGUAGE_MAP = {
+    '.py': 'Python',
+    '.js': 'JavaScript',
+    '.mjs': 'JavaScript',
+    '.cjs': 'JavaScript',
+    '.ts': 'TypeScript',
+    '.html': 'HTML',
+    '.htm': 'HTML',
+    '.css': 'CSS',
+    '.scss': 'CSS',
+    '.less': 'CSS',
+    '.json': 'JSON',
+    '.md': 'Markdown',
+    '.markdown': 'Markdown',
+    '.sh': 'Bash',
+    '.txt': 'Text',
+    '.c': 'C',
+    '.cpp': 'C++',
+    '.java': 'Java',
+    '.php': 'PHP'
+}
+
 def get_prism_language(filename):
     ext = os.path.splitext(filename)[1].lower()
-    if ext in ['.py']: return 'python'
-    elif ext in ['.js', '.mjs', '.cjs']: return 'javascript'
-    elif ext in ['.html', '.htm']: return 'markup'
-    elif ext in ['.css', '.scss', '.less']: return 'css'
-    elif ext in ['.json']: return 'json'
-    elif ext in ['.md', '.markdown']: return 'markdown'
-    elif ext in ['.sh']: return 'bash'
+    lang = LANGUAGE_MAP.get(ext)
+    
+    if lang == 'Python': return 'python'
+    elif lang == 'JavaScript': return 'javascript'
+    elif lang == 'HTML': return 'markup'
+    elif lang == 'CSS': return 'css'
+    elif lang == 'JSON': return 'json'
+    elif lang == 'Markdown': return 'markdown'
+    elif lang == 'Bash': return 'bash'
+    elif lang in ['C', 'C++', 'Java']: return lang.lower()
     else: return 'clike' 
 
 def get_file_icon(filename):
     ext = os.path.splitext(filename)[1].lower()
     if ext in ['.py']: return 'file-code'
-    elif ext in ['.js', '.mjs', '.cjs']: return 'file-code'
+    elif ext in ['.js', '.mjs', '.cjs', '.ts']: return 'file-code'
     elif ext in ['.html', '.htm']: return 'file-html'
     elif ext in ['.css', '.scss', '.less']: return 'file-css'
     elif ext in ['.json']: return 'file-json'
@@ -112,7 +139,18 @@ def get_file_icon(filename):
     elif ext in ['.sh']: return 'terminal'
     else: return 'file-text'
 
+def get_repo_languages(repo):
+    """Returns a list of unique languages present in a repository."""
+    languages = set()
+    for f in repo.files:
+        ext = os.path.splitext(f.name)[1].lower()
+        lang = LANGUAGE_MAP.get(ext, 'Other')
+        languages.add(lang)
+    return sorted(list(languages))
+
 app.jinja_env.globals['get_file_icon'] = get_file_icon
+app.jinja_env.globals['get_repo_languages'] = get_repo_languages
+app.jinja_env.globals['LANGUAGE_MAP'] = LANGUAGE_MAP
 
 
 # ====================== STARTUP ======================
@@ -134,13 +172,19 @@ NAVBAR_TEMPLATE = '''
 <style>
     .sidebar-transition { transition: transform 0.3s ease-in-out; transform: translateX(-100%); }
     .sidebar-open .sidebar-transition { transform: translateX(0); }
+    /* Keyframe for subtle drop-in animation */
+    @keyframes dropIn {
+        0% { opacity: 0; transform: translateY(-20px); }
+        100% { opacity: 1; transform: translateY(0); }
+    }
+    .animate-drop-in { animation: dropIn 0.3s ease-out forwards; }
 </style>
 
 <div class="h-20"></div> 
-<nav class="bg-gray-900/90 backdrop-blur-sm border border-gray-800 shadow-xl rounded-xl p-4 flex justify-between items-center fixed top-0 left-0 right-0 z-50 mx-auto mt-4 w-[95%] lg:w-[90%] transition duration-300">
+<nav class="bg-gray-900/90 backdrop-blur-sm border border-gray-800 shadow-xl rounded-xl p-4 flex justify-between items-center fixed top-0 left-0 right-0 z-50 mx-auto mt-4 w-[95%] lg:w-[90%] transition duration-300 animate-drop-in">
     <div class="flex items-center gap-2 lg:gap-3">
         <i data-lucide="code" class="w-6 h-6 lg:w-8 lg:h-8 text-indigo-400 animate-pulse"></i>
-        <a href="/" class="text-xl lg:text-2xl font-bold text-indigo-400 hover:text-indigo-300 transition duration-150">CodeVault</a>
+        <a href="/" class="text-xl lg:text-2xl font-bold text-indigo-400 hover:text-indigo-300 transition duration-150">CodeVault Pro</a>
     </div>
 
     <div class="hidden lg:flex items-center gap-6">
@@ -231,11 +275,14 @@ NAVBAR_TEMPLATE = '''
             if (body.classList.contains('sidebar-open')) {
                 overlay.style.opacity = '1';
                 overlay.style.pointerEvents = 'auto';
-                body.style.overflow = 'hidden';
+                // Prevents body scroll when sidebar is open
+                document.documentElement.style.overflow = 'hidden'; 
+                document.body.style.overflow = 'hidden';
             } else {
                 overlay.style.opacity = '0';
                 overlay.style.pointerEvents = 'none';
-                body.style.overflow = 'auto';
+                document.documentElement.style.overflow = 'auto';
+                document.body.style.overflow = 'auto';
             }
         }
 
@@ -244,9 +291,12 @@ NAVBAR_TEMPLATE = '''
         
         document.querySelectorAll('#sidebar a').forEach(link => {
             link.addEventListener('click', () => {
-                if (body.classList.contains('sidebar-open')) {
-                    toggleSidebar();
-                }
+                // Wait for animation to finish before closing
+                setTimeout(() => {
+                    if (body.classList.contains('sidebar-open')) {
+                        toggleSidebar();
+                    }
+                }, 100); 
             });
         });
     }
@@ -276,7 +326,7 @@ def admin_panel():
             <h1 class="text-4xl font-bold mb-8 flex items-center gap-3 text-red-400"><i data-lucide="shield-half" class="w-8 h-8"></i> Admin Panel</h1>
             {% with messages = get_flashed_messages() %}
                 {% if messages %}
-                    <div class="mb-4 p-4 rounded-xl bg-green-800 text-green-200 flex items-center gap-2 animate-fade-in-down">
+                    <div class="mb-4 p-4 rounded-xl bg-green-800 text-green-200 flex items-center gap-2 animate-drop-in">
                         <i data-lucide="check-circle" class="w-5 h-5"></i>
                         {% for message in messages %}
                             <p class="text-sm">{{ message }}</p>
@@ -285,7 +335,7 @@ def admin_panel():
                 {% endif %}
             {% endwith %}
 
-            <div class="bg-gray-800 p-6 rounded-xl shadow-xl mb-10">
+            <div class="bg-gray-800 p-6 rounded-xl shadow-xl mb-10 animate-drop-in" style="animation-delay: 0.1s;">
                 <h2 class="text-3xl font-semibold mb-6 flex items-center gap-2"><i data-lucide="users" class="w-6 h-6 text-indigo-400"></i> User Accounts</h2>
                 <div class="overflow-x-auto">
                     <table class="min-w-full divide-y divide-gray-700">
@@ -325,7 +375,7 @@ def admin_panel():
                 </div>
             </div>
 
-            <div class="bg-gray-800 p-6 rounded-xl shadow-xl">
+            <div class="bg-gray-800 p-6 rounded-xl shadow-xl animate-drop-in" style="animation-delay: 0.2s;">
                 <h2 class="text-3xl font-semibold mb-6 flex items-center gap-2"><i data-lucide="git-branch" class="w-6 h-6 text-indigo-400"></i> All Repositories</h2>
                 <div class="overflow-x-auto">
                     <table class="min-w-full divide-y divide-gray-700">
@@ -407,7 +457,7 @@ def admin_edit_user(user_id):
     <body class="h-full flex flex-col">
         {{ navbar() }}
         <div class="flex-1 flex items-center justify-center p-4 sm:p-6">
-            <form method="post" class="bg-gray-800 p-6 sm:p-10 rounded-2xl w-full max-w-lg space-y-4 sm:space-y-6 shadow-xl">
+            <form method="post" class="bg-gray-800 p-6 sm:p-10 rounded-2xl w-full max-w-lg space-y-4 sm:space-y-6 shadow-xl animate-drop-in">
                 <h1 class="text-3xl sm:text-4xl font-bold flex items-center gap-3 text-red-400"><i data-lucide="settings-2" class="w-6 h-6 sm:w-8 sm:h-8"></i> Edit User: {{ user.username }}</h1>
                 
                 <div>
@@ -416,7 +466,7 @@ def admin_edit_user(user_id):
                 </div>
                 
                 <label class="flex items-center gap-3 text-base sm:text-lg">
-                    <input type="checkbox" name="is_admin" {% if user.is_admin %}checked{% endif %} class="w-5 h-5"> 
+                    <input type="checkbox" name="is_admin" {% if user.is_admin %}checked{% endif %} class="w-5 h-5 accent-red-600"> 
                     <i data-lucide="shield" class="w-5 h-5"></i> Promote to Admin
                 </label>
                 
@@ -479,7 +529,7 @@ def admin_edit_repo(repo_id):
     <body class="h-full flex flex-col">
         {{ navbar() }}
         <div class="flex-1 flex items-center justify-center p-4 sm:p-6">
-            <form method="post" class="bg-gray-800 p-6 sm:p-10 rounded-2xl w-full max-w-lg space-y-4 sm:space-y-6 shadow-xl">
+            <form method="post" class="bg-gray-800 p-6 sm:p-10 rounded-2xl w-full max-w-lg space-y-4 sm:space-y-6 shadow-xl animate-drop-in">
                 <h1 class="text-3xl sm:text-4xl font-bold flex items-center gap-3 text-red-400"><i data-lucide="settings-2" class="w-6 h-6 sm:w-8 sm:h-8"></i> Edit Repo: {{ repo.name }}</h1>
                 
                 <div>
@@ -492,7 +542,7 @@ def admin_edit_repo(repo_id):
                 </div>
                 
                 <label class="flex items-center gap-3 text-base sm:text-lg">
-                    <input type="checkbox" name="is_public" {% if repo.is_public %}checked{% endif %} class="w-5 h-5"> 
+                    <input type="checkbox" name="is_public" {% if repo.is_public %}checked{% endif %} class="w-5 h-5 accent-red-600"> 
                     <i data-lucide="globe" class="w-5 h-5"></i> Public (Uncheck for Private)
                 </label>
                 
@@ -587,9 +637,9 @@ def login():
     <html class="h-full bg-gray-900 text-white">
     <head><title>Login/Register - CodeVault</title><meta name="viewport" content="width=device-width, initial-scale=1"><script src="https://cdn.tailwindcss.com"></script></head>
     <body class="h-full flex items-center justify-center p-4">
-        <div class="bg-gray-800 p-6 sm:p-10 rounded-2xl w-full max-w-md shadow-2xl">
+        <div class="bg-gray-800 p-6 sm:p-10 rounded-2xl w-full max-w-md shadow-2xl animate-drop-in">
             <h1 class="text-4xl sm:text-5xl font-bold text-center text-indigo-400 mb-6 sm:mb-8 flex items-center justify-center gap-2">
-                <i data-lucide="lock-keyhole" class="w-8 h-8"></i> CodeVault
+                <i data-lucide="lock-keyhole" class="w-8 h-8"></i> CodeVault Pro
             </h1>
             {% with messages = get_flashed_messages() %}
                 {% if messages %}
@@ -631,11 +681,11 @@ def dashboard():
             {% if messages %}
                 {% for category, message in messages %}
                     {% if category == 'admin_note' %}
-                        <div class="fixed top-24 right-4 z-50 p-4 rounded-xl bg-yellow-800 text-yellow-200 shadow-xl animate-fade-in-down max-w-sm">
+                        <div class="fixed top-24 right-4 z-50 p-4 rounded-xl bg-yellow-800 text-yellow-200 shadow-xl animate-drop-in max-w-sm">
                             <p class="text-sm">{{ message }}</p>
                         </div>
                     {% else %}
-                        <div class="fixed top-24 right-4 z-50 p-3 rounded-xl bg-green-700 text-white shadow-xl animate-fade-in-down">
+                        <div class="fixed top-24 right-4 z-50 p-3 rounded-xl bg-green-700 text-white shadow-xl animate-drop-in">
                             <p class="text-sm flex items-center gap-2"><i data-lucide="info" class="w-4 h-4"></i>{{ message }}</p>
                         </div>
                     {% endif %}
@@ -643,13 +693,13 @@ def dashboard():
             {% endif %}
         {% endwith %}
         <div class="p-4 sm:p-6 max-w-6xl mx-auto flex-1 w-full">
-            <a href="/repo/new" class="inline-block bg-indigo-600 hover:bg-indigo-700 px-6 sm:px-8 py-3 sm:py-4 rounded-xl font-bold text-lg sm:text-xl mb-6 sm:mb-8 flex items-center gap-2 transition duration-150 hover:scale-[1.03]">
+            <a href="/repo/new" class="inline-block bg-indigo-600 hover:bg-indigo-700 px-6 sm:px-8 py-3 sm:py-4 rounded-xl font-bold text-lg sm:text-xl mb-6 sm:mb-8 flex items-center gap-2 transition duration-150 hover:scale-[1.03] active:scale-95 animate-drop-in" style="animation-delay: 0.1s;">
                 <i data-lucide="plus-square" class="w-5 h-5 sm:w-6 sm:h-6"></i> New Repository
             </a>
             <h1 class="text-3xl sm:text-4xl font-bold mb-6 sm:mb-8 flex items-center gap-3"><i data-lucide="folder-kanban" class="w-6 h-6 sm:w-8 sm:h-8 text-indigo-400"></i> My Repositories</h1>
             <div class="grid gap-4 sm:gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {% for r in repos %}
-                <a href="/repo/{{ r.id }}" class="block bg-gray-800 p-4 sm:p-8 rounded-xl border border-gray-700 hover:border-indigo-500 transition duration-200 hover:shadow-indigo-500/30 hover:shadow-lg hover:scale-[1.02] active:scale-95">
+                <a href="/repo/{{ r.id }}" class="block bg-gray-800 p-4 sm:p-8 rounded-xl border border-gray-700 hover:border-indigo-500 transition duration-200 hover:shadow-indigo-500/30 hover:shadow-lg hover:scale-[1.02] active:scale-95 animate-drop-in" style="animation-delay: {{ loop.index * 0.1 }}s;">
                     <div class="flex items-center justify-between mb-2">
                         <h3 class="text-xl sm:text-2xl font-bold">{{ r.name }}</h3>
                         <i data-lucide="{% if r.is_public %}globe{% else %}lock{% endif %}" class="w-4 h-4 sm:w-5 sm:h-5 text-gray-400"></i>
@@ -658,6 +708,11 @@ def dashboard():
                     <div class="text-xs sm:text-sm text-gray-500 mt-3 sm:mt-4 flex items-center gap-3 sm:gap-4">
                         <span class="flex items-center gap-1"><i data-lucide="file-text" class="w-4 h-4"></i> {{ r.files|length }} files</span>
                         <span>• {% if r.is_public %}Public{% else %}Private{% endif %}</span>
+                        <div class="flex flex-wrap gap-1 mt-1">
+                            {% for lang in get_repo_languages(r) %}
+                                <span class="text-xs px-2 py-0.5 rounded-full bg-purple-900/50 text-purple-300">{{ lang }}</span>
+                            {% endfor %}
+                        </div>
                     </div>
                 </a>
                 {% endfor %}
@@ -672,7 +727,49 @@ def dashboard():
 
 @app.route('/explore')
 def explore():
-    repos = Repository.query.filter_by(is_public=True).order_by(Repository.created_at.desc()).all()
+    # Get search and filter parameters
+    search_query = request.args.get('q', '').strip()
+    language_filter = request.args.get('lang', '').strip()
+    
+    # Base query for public repos
+    query = Repository.query.filter_by(is_public=True)
+    
+    # Apply search filter
+    if search_query:
+        search_pattern = f'%{search_query}%'
+        query = query.filter(or_(
+            Repository.name.ilike(search_pattern),
+            Repository.description.ilike(search_pattern),
+            User.username.ilike(search_pattern) # Search owner name too
+        )).join(User)
+
+    # Apply language filter
+    if language_filter:
+        if language_filter != 'Other':
+            # Find all files whose name ends with one of the extensions mapped to the filter language
+            extensions = [ext for ext, lang in LANGUAGE_MAP.items() if lang == language_filter]
+            
+            # Construct OR clauses for extensions
+            ext_filters = [CodeFile.name.ilike(f'%.{ext.lstrip(".")}') for ext in extensions]
+            
+            if ext_filters:
+                # Filter repositories that have at least one file matching the extension criteria
+                query = query.filter(Repository.files.any(or_(*ext_filters)))
+            
+        else:
+             # Handle 'Other' - files whose extension is not in the LANGUAGE_MAP keys
+             known_extensions = list(LANGUAGE_MAP.keys())
+             
+             # Filter repositories that have at least one file whose extension is NOT known
+             query = query.filter(Repository.files.any(~CodeFile.name.ilike('%.%', escape='\\')) | ~Repository.files.any(or_(*[CodeFile.name.ilike(f'%.{ext.lstrip(".")}') for ext in known_extensions])))
+
+    # Final result set
+    repos = query.order_by(Repository.created_at.desc()).all()
+    
+    # Get a list of all unique languages across all public repositories for filter dropdown
+    all_languages = sorted(list(set(LANGUAGE_map.values())))
+
+
     return render_template_string('''
     <!DOCTYPE html>
     <html class="h-full bg-gray-900 text-white">
@@ -681,28 +778,61 @@ def explore():
         {{ navbar() }}
         <div class="p-4 sm:p-6 max-w-6xl mx-auto flex-1 w-full"> 
             <h1 class="text-3xl sm:text-4xl font-bold mb-6 sm:mb-8 flex items-center gap-3"><i data-lucide="globe" class="w-6 h-6 sm:w-8 sm:h-8 text-indigo-400"></i> Public Repositories</h1>
+            
+            <form method="GET" class="mb-8 flex flex-col sm:flex-row gap-4 bg-gray-800 p-4 rounded-xl shadow-lg animate-drop-in" style="animation-delay: 0.1s;">
+                <div class="flex-1 relative">
+                    <input type="text" name="q" placeholder="Search repos by name, description, or owner..." value="{{ search_query }}" class="w-full px-4 py-3 bg-gray-700 rounded-xl text-white pl-10 focus:ring-2 focus:ring-indigo-500 transition duration-150">
+                    <i data-lucide="search" class="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2"></i>
+                </div>
+                
+                <div class="flex flex-shrink-0 gap-2">
+                    <select name="lang" class="px-4 py-3 bg-gray-700 rounded-xl text-white appearance-none focus:ring-2 focus:ring-indigo-500 transition duration-150">
+                        <option value="">All Languages</option>
+                        {% for lang in all_languages %}
+                        <option value="{{ lang }}" {% if lang == language_filter %}selected{% endif %}>{{ lang }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 px-5 py-3 rounded-xl font-bold flex items-center gap-2 transition duration-150 hover:scale-[1.03] active:scale-95">
+                        <i data-lucide="filter" class="w-5 h-5"></i> Filter
+                    </button>
+                </div>
+            </form>
+
             <div class="grid gap-4 sm:gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {% for r in repos %}
-                <a href="/repo/{{ r.id }}" class="block bg-gray-800 p-4 sm:p-6 rounded-xl border border-gray-700 hover:border-indigo-500 transition duration-200 hover:shadow-indigo-500/30 hover:shadow-lg hover:scale-[1.02]">
+                <a href="/repo/{{ r.id }}" class="block bg-gray-800 p-4 sm:p-6 rounded-xl border border-gray-700 hover:border-indigo-500 transition duration-200 hover:shadow-indigo-500/30 hover:shadow-lg hover:scale-[1.02] animate-drop-in" style="animation-delay: {{ loop.index * 0.1 }}s;">
                     <div class="flex items-center gap-2 sm:gap-3 mb-2">
                         <i data-lucide="git-fork" class="w-5 h-5 sm:w-6 sm:h-6 text-indigo-400"></i>
                         <h3 class="text-xl sm:text-2xl font-bold">{{ r.name }}</h3>
                     </div>
                     <p class="text-gray-400 text-xs sm:text-sm mb-3 sm:mb-4">{{ r.description or 'No description' }}</p>
-                    <div class="text-xs sm:text-sm text-gray-500 flex items-center gap-3 sm:gap-4">
-                        <span class="flex items-center gap-1"><i data-lucide="user" class="w-4 h-4"></i> @{{ r.owner.username }}</span> 
-                        <span class="flex items-center gap-1"><i data-lucide="file-text" class="w-4 h-4"></i> {{ r.files|length }} files</span>
+                    <div class="text-xs sm:text-sm text-gray-500 flex flex-col gap-2">
+                        <span class="flex items-center gap-1"><i data-lucide="user" class="w-4 h-4"></i> Owner: @{{ r.owner.username }}</span> 
+                        <div class="flex flex-wrap gap-1">
+                            {% for lang in get_repo_languages(r) %}
+                                <span class="text-xs px-2 py-0.5 rounded-full bg-purple-900/50 text-purple-300">{{ lang }}</span>
+                            {% endfor %}
+                        </div>
                     </div>
                 </a>
                 {% endfor %}
             </div>
-            {% if not repos %}<p class="text-center text-2xl sm:text-3xl text-gray-500 mt-10 sm:mt-20 flex items-center justify-center gap-3"><i data-lucide="folder-open" class="w-6 h-6 sm:w-8 sm:h-8"></i> No public repos yet!</p>{% endif %}
+            
+            {% if not repos and (search_query or language_filter) %}
+            <p class="text-center text-2xl sm:text-3xl text-gray-500 mt-10 sm:mt-20 flex items-center justify-center gap-3">
+                <i data-lucide="search-x" class="w-6 h-6 sm:w-8 sm:h-8"></i> No results found for your filters.
+            </p>
+            {% elif not repos %}
+            <p class="text-center text-2xl sm:text-3xl text-gray-500 mt-10 sm:mt-20 flex items-center justify-center gap-3">
+                <i data-lucide="folder-open" class="w-6 h-6 sm:w-8 sm:h-8"></i> No public repos yet!
+            </p>
+            {% endif %}
         </div>
         <script src="https://cdn.jsdelivr.net/npm/lucide/dist/lucide.min.js"></script>
         <script>lucide.createIcons();</script>
     </body>
     </html>
-    ''', repos=repos, current_user=current_user)
+    ''', repos=repos, current_user=current_user, search_query=search_query, language_filter=language_filter, all_languages=all_languages)
 
 @app.route('/repo/delete/<int:repo_id>', methods=['POST'])
 @login_required
@@ -740,11 +870,11 @@ def new_repo():
     <body class="h-full flex flex-col">
         {{ navbar() }}
         <div class="flex-1 flex items-center justify-center p-4 sm:p-6">
-            <form method="post" class="bg-gray-800 p-6 sm:p-10 rounded-2xl w-full max-w-lg space-y-4 sm:space-y-6 shadow-xl">
+            <form method="post" class="bg-gray-800 p-6 sm:p-10 rounded-2xl w-full max-w-lg space-y-4 sm:space-y-6 shadow-xl animate-drop-in">
                 <h1 class="text-3xl sm:text-4xl font-bold flex items-center gap-3"><i data-lucide="plus-square" class="w-6 h-6 sm:w-8 sm:h-8 text-indigo-400"></i> New Repository</h1>
                 <input name="name" placeholder="Repository Name" required class="w-full px-4 py-3 sm:px-6 sm:py-4 bg-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 transition duration-150">
                 <textarea name="description" placeholder="Description (optional)" class="w-full px-4 py-3 sm:px-6 sm:py-4 bg-gray-700 rounded-xl h-24 sm:h-32 focus:ring-2 focus:ring-indigo-500 transition duration-150"></textarea>
-                <label class="flex items-center gap-3 text-base sm:text-lg"><input type="checkbox" name="public" checked class="w-5 h-5 sm:w-6 sm:h-6"> <i data-lucide="globe" class="w-4 h-4 sm:w-5 sm:h-5"></i> Public</label>
+                <label class="flex items-center gap-3 text-base sm:text-lg"><input type="checkbox" name="public" checked class="w-5 h-5 sm:w-6 sm:h-6 accent-indigo-500"> <i data-lucide="globe" class="w-4 h-4 sm:w-5 sm:h-5"></i> Public</label>
                 <button class="w-full py-3 sm:py-4 bg-indigo-600 hover:bg-indigo-700 font-bold rounded-xl text-lg sm:text-xl flex items-center justify-center gap-2 transition duration-150 hover:scale-[1.02]">
                     <i data-lucide="check-circle" class="w-5 h-5 sm:w-6 sm:h-6"></i> Create Repository
                 </button>
@@ -821,11 +951,11 @@ def editor(repo_id):
             {% if messages %}
                 {% for category, message in messages %}
                     {% if category == 'admin_note' %}
-                        <div class="fixed top-24 right-4 z-50 p-4 rounded-xl bg-yellow-800 text-yellow-200 shadow-xl animate-fade-in-down max-w-sm">
+                        <div class="fixed top-24 right-4 z-50 p-4 rounded-xl bg-yellow-800 text-yellow-200 shadow-xl animate-drop-in max-w-sm">
                             <p class="text-sm">{{ message }}</p>
                         </div>
                     {% else %}
-                        <div class="fixed top-24 right-4 z-50 p-3 rounded-xl bg-green-700 text-white shadow-xl animate-fade-in-down">
+                        <div class="fixed top-24 right-4 z-50 p-3 rounded-xl bg-green-700 text-white shadow-xl animate-drop-in">
                             <p class="text-sm flex items-center gap-2"><i data-lucide="info" class="w-4 h-4"></i>{{ message }}</p>
                         </div>
                     {% endif %}
@@ -833,7 +963,7 @@ def editor(repo_id):
             {% endif %}
         {% endwith %}
         <div class="flex-1 flex flex-col lg:flex-row">
-            <div class="w-full lg:w-80 bg-gray-800 border-r border-gray-700 p-4 sm:p-6 overflow-y-auto">
+            <div class="w-full lg:w-80 bg-gray-800 border-r border-gray-700 p-4 sm:p-6 overflow-y-auto animate-drop-in" style="animation-delay: 0.1s;">
                 <h2 class="text-xl sm:text-2xl font-bold mb-4 sm:mb-6 flex items-center gap-2"><i data-lucide="folder-tree" class="w-5 h-5 sm:w-6 sm:h-6 text-indigo-400"></i> {{ repo.name }}</h2>
                 
                 <form method="POST" action="/repo/delete/{{ repo.id }}" onsubmit="return confirm('WARNING: This will permanently delete the repository and ALL files inside it. Are you sure?');" class="mb-6">
@@ -861,7 +991,7 @@ def editor(repo_id):
             </div>
             <div class="flex-1 flex flex-col">
                 {% if current_file %}
-                <div class="p-3 sm:p-5 bg-gray-800 border-b border-gray-700 flex justify-between items-center flex-wrap gap-2">
+                <div class="p-3 sm:p-5 bg-gray-800 border-b border-gray-700 flex justify-between items-center flex-wrap gap-2 animate-drop-in" style="animation-delay: 0.2s;">
                     <h3 class="text-xl sm:text-2xl font-mono font-bold flex items-center gap-2"><i data-lucide="code" class="w-5 h-5 sm:w-6 sm:h-6 text-purple-400"></i> {{ current_file.name }}</h3>
                     <div class="flex items-center gap-2 sm:gap-4">
                         <form method="POST" action="/file/delete/{{ current_file.id }}" onsubmit="return confirm('Are you sure you want to delete {{ current_file.name }}?');">
@@ -876,7 +1006,7 @@ def editor(repo_id):
                     </div>
                 </div>
                 
-                <div class="flex-1 code-editor-container bg-gray-900">
+                <div class="flex-1 code-editor-container bg-gray-900 animate-drop-in" style="animation-delay: 0.3s;">
                     <pre id="highlighting" class="language-{{ prism_language }}"><code class="language-{{ prism_language }}"></code></pre>
                     <textarea id="code" class="outline-none" spellcheck="false">{{ file_content_safe }}</textarea>
                 </div>
@@ -890,6 +1020,11 @@ def editor(repo_id):
                 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/components/prism-json.min.js"></script>
                 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/components/prism-markdown.min.js"></script>
                 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/components/prism-bash.min.js"></script>
+                <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/components/prism-c.min.js"></script>
+                <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/components/prism-cpp.min.js"></script>
+                <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/components/prism-java.min.js"></script>
+                <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/components/prism-php.min.js"></script>
+
                 <script>
                     const codeEl = document.getElementById('code');
                     const statusEl = document.getElementById('status');
@@ -1058,11 +1193,11 @@ def settings():
             {% if messages %}
                 {% for category, message in messages %}
                     {% if category == 'admin_note' %}
-                        <div class="fixed top-24 right-4 z-50 p-4 rounded-xl bg-yellow-800 text-yellow-200 shadow-xl animate-fade-in-down max-w-sm">
+                        <div class="fixed top-24 right-4 z-50 p-4 rounded-xl bg-yellow-800 text-yellow-200 shadow-xl animate-drop-in max-w-sm">
                             <p class="text-sm">{{ message }}</p>
                         </div>
                     {% else %}
-                        <div class="fixed top-24 right-4 z-50 p-3 rounded-xl bg-green-700 text-white shadow-xl animate-fade-in-down">
+                        <div class="fixed top-24 right-4 z-50 p-3 rounded-xl bg-green-700 text-white shadow-xl animate-drop-in">
                             <p class="text-sm flex items-center gap-2"><i data-lucide="info" class="w-4 h-4"></i>{{ message }}</p>
                         </div>
                     {% endif %}
@@ -1072,7 +1207,7 @@ def settings():
         <div class="p-4 sm:p-10 max-w-2xl mx-auto flex-1 w-full">
             <h1 class="text-3xl sm:text-4xl font-bold mb-6 sm:mb-10 flex items-center gap-3"><i data-lucide="settings" class="w-6 h-6 sm:w-8 sm:h-8 text-indigo-400"></i> Settings</h1>
             
-            <form method="post" class="bg-gray-800 p-6 sm:p-8 rounded-2xl space-y-6 sm:space-y-8 shadow-xl">
+            <form method="post" class="bg-gray-800 p-6 sm:p-8 rounded-2xl space-y-6 sm:space-y-8 shadow-xl animate-drop-in">
                 <div>
                     <label class="block text-base sm:text-xl mb-3 flex items-center gap-2"><i data-lucide="user" class="w-5 h-5"></i> Display Name</label>
                     <input name="display_name" value="{{ current_user.display_name }}" class="w-full px-4 py-3 sm:px-6 sm:py-4 bg-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 transition duration-150">
@@ -1086,7 +1221,7 @@ def settings():
                     <span class="flex items-center gap-2"><i data-lucide="save" class="w-5 h-5 sm:w-6 sm:h-6"></i> Enable Auto-save</span>
                 </label>
                 <button class="w-full py-4 sm:py-5 bg-indigo-600 hover:bg-indigo-700 font-bold rounded-xl text-lg sm:text-xl flex items-center justify-center gap-2 transition duration-150 hover:scale-[1.03] active:scale-95">
-                    <i data-lucide="disc-3" class="w-5 h-5 sm:w-6 sm:h-6 animate-spin-slow"></i> Save Settings
+                    <i data-lucide="disc-3" class="w-5 h-5 sm:w-6 sm:h-6"></i> Save Settings
                 </button>
             </form>
         </div>
@@ -1104,7 +1239,7 @@ def logout():
 
 # ====================== MAIN ======================
 if __name__ == '__main__':
-    print("CodeVault PRO v8 is running! (Admin Controls and User Notifications added)")
+    print("CodeVault PRO v8.1 is running! (Enhanced Explore, Icons, and Animations)")
     print("Visit: http://127.0.0.1:5000")
     print("The very first user created is automatically promoted to Admin.")
     app.run(host='0.0.0.0', port=5000, debug=False)
