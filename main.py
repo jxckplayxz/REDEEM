@@ -1,6 +1,5 @@
 # ================================================
-# CODEVAULT PRO v4 – GITHUB-STYLE UI UPGRADE
-# Full single file • Auto-save • Mobile-ready • Lucide icons
+# CODEVAULT PRO v4 – FULL SINGLE-FILE (FIXED NAVBAR + ICONS)
 # ================================================
 
 from flask import Flask, render_template_string, request, redirect, url_for, flash, abort, Response
@@ -11,6 +10,7 @@ from datetime import datetime
 import os
 import sqlite3
 
+# ====================== APP SETUP ======================
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'codevault-final-2025'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///codevault.db'
@@ -65,7 +65,7 @@ def fix_database():
         try:
             c.execute(f"ALTER TABLE user ADD COLUMN {col} {sql}")
         except sqlite3.OperationalError:
-            pass  # already exists
+            pass
     conn.commit()
     conn.close()
 
@@ -86,34 +86,37 @@ with app.app_context():
 
 # ====================== NAVBAR ======================
 app.jinja_env.globals['navbar'] = '''
-<nav class="bg-gray-900 border-b border-gray-800 px-6 py-4 flex justify-between items-center sticky top-0 z-50">
-    <a href="/" class="flex items-center gap-3 text-2xl font-bold text-indigo-400">
-        <i data-lucide="code" class="w-8 h-8"></i>
-        CodeVault
+<nav class="bg-gray-900 border-b border-gray-800 px-6 py-3 flex justify-between items-center sticky top-0 z-50 shadow-md">
+  <a href="/" class="flex items-center gap-2 text-2xl font-bold text-indigo-400">
+    <i data-lucide="code" class="w-7 h-7"></i>
+    CodeVault
+  </a>
+  <div class="flex items-center gap-6">
+    <a href="/explore" class="flex items-center gap-1 text-gray-300 hover:text-white font-medium transition-colors duration-200">
+      <i data-lucide="compass" class="w-5 h-5"></i>
+      Explore
     </a>
-    <div class="flex items-center gap-6">
-        <a href="/explore" class="flex items-center gap-1 text-gray-300 hover:text-white">
-            <i data-lucide="compass" class="w-5 h-5"></i> Explore
-        </a>
-        {% if current_user.is_authenticated %}
-        <a href="/dashboard" class="flex items-center gap-1 text-gray-300 hover:text-white">
-            <i data-lucide="folder" class="w-5 h-5"></i> My Code
-        </a>
-        <a href="/settings" class="flex items-center gap-1 text-gray-300 hover:text-white">
-            <i data-lucide="settings" class="w-5 h-5"></i> Settings
-        </a>
-        <a href="/logout" class="flex items-center gap-1 text-red-400 hover:text-red-300">
-            <i data-lucide="log-out" class="w-5 h-5"></i> Logout
-        </a>
-        {% else %}
-        <a href="/login" class="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 px-6 py-3 rounded-lg font-bold">
-            <i data-lucide="log-in" class="w-5 h-5"></i> Login
-        </a>
-        {% endif %}
-    </div>
+    {% if current_user.is_authenticated %}
+      <a href="/dashboard" class="flex items-center gap-1 text-gray-300 hover:text-white font-medium transition-colors duration-200">
+        <i data-lucide="folder" class="w-5 h-5"></i>
+        My Code
+      </a>
+      <a href="/settings" class="flex items-center gap-1 text-gray-300 hover:text-white font-medium transition-colors duration-200">
+        <i data-lucide="settings" class="w-5 h-5"></i>
+        Settings
+      </a>
+      <a href="/logout" class="flex items-center gap-1 text-red-400 hover:text-red-300 font-medium transition-colors duration-200">
+        <i data-lucide="log-out" class="w-5 h-5"></i>
+        Logout
+      </a>
+    {% else %}
+      <a href="/login" class="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 px-5 py-2 rounded-lg font-bold transition-colors duration-200">
+        <i data-lucide="log-in" class="w-5 h-5"></i>
+        Login
+      </a>
+    {% endif %}
+  </div>
 </nav>
-<script src="https://cdn.jsdelivr.net/npm/lucide/dist/lucide.min.js"></script>
-<script>lucide.createIcons();</script>
 '''
 
 # ====================== ROUTES ======================
@@ -134,26 +137,16 @@ def login():
     return render_template_string('''
     <!DOCTYPE html>
     <html class="h-full bg-gray-900 text-white">
-    <head>
-        <title>Login - CodeVault</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <script src="https://cdn.tailwindcss.com"></script>
-        <script src="https://cdn.jsdelivr.net/npm/lucide/dist/lucide.min.js"></script>
-    </head>
+    <head><title>Login - CodeVault</title><meta name="viewport" content="width=device-width, initial-scale=1"><script src="https://cdn.tailwindcss.com"></script></head>
     <body class="h-full flex items-center justify-center p-4">
         <div class="bg-gray-800 p-10 rounded-2xl w-full max-w-md shadow-2xl">
-            <h1 class="text-5xl font-bold text-center text-indigo-400 mb-8 flex items-center justify-center gap-2">
-                <i data-lucide="code" class="w-10 h-10"></i> CodeVault
-            </h1>
+            <h1 class="text-5xl font-bold text-center text-indigo-400 mb-8">CodeVault</h1>
             <form method="post" class="space-y-6">
                 <input name="username" value="demo" placeholder="Username" required class="w-full px-6 py-4 bg-gray-700 rounded-xl text-lg">
                 <input name="password" type="password" value="demo" placeholder="Password" required class="w-full px-6 py-4 bg-gray-700 rounded-xl text-lg">
-                <button class="w-full py-4 bg-indigo-600 hover:bg-indigo-700 font-bold rounded-xl text-xl flex items-center justify-center gap-2">
-                    <i data-lucide="log-in" class="w-5 h-5"></i> Login → demo/demo
-                </button>
+                <button class="w-full py-4 bg-indigo-600 hover:bg-indigo-700 font-bold rounded-xl text-xl">Login → demo/demo</button>
             </form>
         </div>
-        <script>lucide.createIcons();</script>
     </body>
     </html>
     ''')
@@ -174,22 +167,13 @@ def explore():
     <body class="h-full flex flex-col">
         {{ navbar|safe }}
         <div class="p-6 max-w-6xl mx-auto">
-            <h1 class="text-4xl font-bold mb-8 flex items-center gap-2">
-                <i data-lucide="compass" class="w-8 h-8"></i> Public Repositories
-            </h1>
+            <h1 class="text-4xl font-bold mb-8">Public Repositories</h1>
             <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {% for r in repos %}
-                <a href="/repo/{{ r.id }}" class="block bg-gray-800 p-6 rounded-xl border border-gray-700 hover:border-indigo-500 hover:shadow-lg transition flex flex-col justify-between">
-                    <div>
-                        <h3 class="text-2xl font-bold mb-2 flex items-center gap-2">
-                            <i data-lucide="folder" class="w-6 h-6"></i> {{ r.name }}
-                        </h3>
-                        <p class="text-gray-400 text-sm mb-4">{{ r.description or 'No description' }}</p>
-                    </div>
-                    <div class="flex justify-between text-sm text-gray-500">
-                        <span>@{{ r.owner.username }}</span>
-                        <span>{{ r.files|length }} files</span>
-                    </div>
+                <a href="/repo/{{ r.id }}" class="block bg-gray-800 p-6 rounded-xl border border-gray-700 hover:border-indigo-500 transition">
+                    <h3 class="text-2xl font-bold mb-2">{{ r.name }}</h3>
+                    <p class="text-gray-400 text-sm mb-4">{{ r.description or 'No description' }}</p>
+                    <div class="text-sm text-gray-500">@{{ r.owner.username }} • {{ r.files|length }} files</div>
                 </a>
                 {% endfor %}
             </div>
@@ -201,7 +185,6 @@ def explore():
     </html>
     ''', repos=repos, current_user=current_user)
 
-# ====================== DASHBOARD ======================
 @app.route('/dashboard')
 @login_required
 def dashboard():
@@ -213,22 +196,13 @@ def dashboard():
     <body class="h-full flex flex-col">
         {{ navbar|safe }}
         <div class="p-6 max-w-6xl mx-auto">
-            <a href="/repo/new" class="inline-block bg-indigo-600 hover:bg-indigo-700 px-8 py-4 rounded-xl font-bold text-xl mb-8 flex items-center gap-2">
-                <i data-lucide="plus" class="w-5 h-5"></i> New Repository
-            </a>
+            <a href="/repo/new" class="inline-block bg-indigo-600 hover:bg-indigo-700 px-8 py-4 rounded-xl font-bold text-xl mb-8">+ New Repository</a>
             <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {% for r in repos %}
-                <a href="/repo/{{ r.id }}" class="block bg-gray-800 p-8 rounded-xl border border-gray-700 hover:border-indigo-500 hover:shadow-lg transition flex flex-col justify-between">
-                    <div>
-                        <h3 class="text-2xl font-bold mb-2 flex items-center gap-2">
-                            <i data-lucide="folder" class="w-6 h-6"></i> {{ r.name }}
-                        </h3>
-                        <p class="text-gray-400 text-sm">{{ r.description or 'No description' }}</p>
-                    </div>
-                    <div class="flex justify-between text-sm text-gray-500 mt-4">
-                        <span>{{ r.files|length }} files</span>
-                        <span>{% if r.is_public %}Public{% else %}Private{% endif %}</span>
-                    </div>
+                <a href="/repo/{{ r.id }}" class="block bg-gray-800 p-8 rounded-xl border border-gray-700 hover:border-indigo-500 transition">
+                    <h3 class="text-2xl font-bold mb-2">{{ r.name }}</h3>
+                    <p class="text-gray-400 text-sm">{{ r.description or 'No description' }}</p>
+                    <div class="text-sm text-gray-500 mt-4">{{ r.files|length }} files • {% if r.is_public %}Public{% else %}Private{% endif %}</div>
                 </a>
                 {% endfor %}
             </div>
@@ -261,14 +235,13 @@ def new_repo():
     <html class="h-full bg-gray-900 text-white">
     <head><title>New Repo</title><script src="https://cdn.tailwindcss.com"></script></head>
     <body class="flex items-center justify-center p-6">
+        {{ navbar|safe }}
         <form method="post" class="bg-gray-800 p-10 rounded-2xl w-full max-w-lg space-y-6">
-            <h1 class="text-4xl font-bold flex items-center gap-2"><i data-lucide="plus-circle" class="w-8 h-8"></i> New Repository</h1>
+            <h1 class="text-4xl font-bold">New Repository</h1>
             <input name="name" placeholder="Repository Name" required class="w-full px-6 py-4 bg-gray-700 rounded-xl">
             <textarea name="description" placeholder="Description (optional)" class="w-full px-6 py-4 bg-gray-700 rounded-xl h-32"></textarea>
             <label class="flex items-center gap-3 text-lg"><input type="checkbox" name="public" checked class="w-6 h-6"> Public</label>
-            <button class="w-full py-4 bg-indigo-600 hover:bg-indigo-700 font-bold rounded-xl text-xl flex items-center justify-center gap-2">
-                <i data-lucide="check-circle" class="w-5 h-5"></i> Create Repository
-            </button>
+            <button class="w-full py-4 bg-indigo-600 hover:bg-indigo-700 font-bold rounded-xl text-xl">Create Repository</button>
         </form>
         <script src="https://cdn.jsdelivr.net/npm/lucide/dist/lucide.min.js"></script>
         <script>lucide.createIcons();</script>
@@ -276,7 +249,7 @@ def new_repo():
     </html>
     ''', current_user=current_user)
 
-# ====================== EDITOR ======================
+# ====================== REPO EDITOR ======================
 @app.route('/repo/<int:repo_id>')
 @login_required
 def editor(repo_id):
@@ -288,29 +261,23 @@ def editor(repo_id):
     return render_template_string('''
     <!DOCTYPE html>
     <html class="h-full bg-gray-900 text-white">
-    <head>
-        <title>{{ repo.name }} - CodeVault</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <script src="https://cdn.tailwindcss.com"></script>
-    </head>
+    <head><title>{{ repo.name }} - CodeVault</title><meta name="viewport" content="width=device-width, initial-scale=1"><script src="https://cdn.tailwindcss.com"></script></head>
     <body class="h-full flex flex-col">
         {{ navbar|safe }}
         <div class="flex-1 flex flex-col lg:flex-row">
             <div class="w-full lg:w-80 bg-gray-800 border-r border-gray-700 p-6 overflow-y-auto">
-                <h2 class="text-2xl font-bold mb-6 flex items-center gap-2"><i data-lucide="folder" class="w-6 h-6"></i> {{ repo.name }}</h2>
+                <h2 class="text-2xl font-bold mb-6">{{ repo.name }}</h2>
                 <div class="space-y-3">
                     {% for f in repo.files %}
-                    <a href="/repo/{{ repo.id }}?file={{ f.id }}" class="block p-4 rounded-lg font-medium {% if f.id == (current_file.id if current_file else 0) %}bg-indigo-600 text-white flex items-center gap-2{% else %}bg-gray-700 hover:bg-gray-600 flex items-center gap-2{% endif %}">
-                        <i data-lucide="file-text" class="w-4 h-4"></i> {{ f.name }}
+                    <a href="/repo/{{ repo.id }}?file={{ f.id }}" class="block p-4 rounded-lg font-medium {% if f.id == (current_file.id if current_file else 0) %}bg-indigo-600 text-white{% else %}bg-gray-700 hover:bg-gray-600{% endif %}">
+                        {{ f.name }}
                     </a>
                     {% endfor %}
                     <form action="/file/new" method="post" class="mt-8">
                         <input type="hidden" name="repo_id" value="{{ repo.id }}">
                         <div class="flex gap-2">
                             <input name="name" placeholder="new-file.txt" required class="flex-1 px-4 py-3 bg-gray-700 rounded-l-lg">
-                            <button class="px-6 bg-indigo-600 hover:bg-indigo-700 rounded-r-lg font-bold flex items-center gap-2">
-                                <i data-lucide="plus" class="w-5 h-5"></i> New
-                            </button>
+                            <button class="px-6 bg-indigo-600 hover:bg-indigo-700 rounded-r-lg font-bold">+</button>
                         </div>
                     </form>
                 </div>
@@ -320,9 +287,7 @@ def editor(repo_id):
                 <div class="p-5 bg-gray-800 border-b border-gray-700 flex justify-between items-center">
                     <h3 class="text-2xl font-mono font-bold">{{ current_file.name }}</h3>
                     <div class="flex items-center gap-4">
-                        <button onclick="copyRaw()" class="px-5 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg font-medium flex items-center gap-2">
-                            <i data-lucide="copy" class="w-4 h-4"></i> Copy Raw
-                        </button>
+                        <button onclick="copyRaw()" class="px-5 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg font-medium">Copy Raw Link</button>
                         <span id="status" class="text-green-400 font-medium">Saved</span>
                     </div>
                 </div>
@@ -396,11 +361,7 @@ def raw(repo_id, file_id):
     return Response(
         f.content,
         mimetype='text/plain',
-        headers={
-            'Content-Disposition': f'attachment; filename="{f.name}"',
-            'Content-Type': 'text/plain; charset=utf-8'
-        }
-    )
+        headers={'Content-Disposition': f'attachment; filename="{f.name}"'}
 
 # ====================== SETTINGS ======================
 @app.route('/settings', methods=['GET', 'POST'])
@@ -418,11 +379,14 @@ def settings():
     return render_template_string('''
     <!DOCTYPE html>
     <html class="h-full bg-gray-900 text-white">
-    <head><title>Settings</title><script src="https://cdn.tailwindcss.com"></script></head>
+    <head>
+        <title>Settings - CodeVault</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+    </head>
     <body class="h-full flex flex-col">
         {{ navbar|safe }}
         <div class="p-10 max-w-2xl mx-auto">
-            <h1 class="text-4xl font-bold mb-10 flex items-center gap-2"><i data-lucide="settings" class="w-8 h-8"></i> Settings</h1>
+            <h1 class="text-4xl font-bold mb-10">Settings</h1>
             {% with messages = get_flashed_messages() %}
                 {% if messages %}
                     <div class="mb-6 p-4 rounded-xl bg-green-800 text-green-200">
@@ -445,9 +409,7 @@ def settings():
                     <input type="checkbox" name="auto_save" {% if current_user.auto_save %}checked{% endif %} class="w-8 h-8">
                     <span>Enable Auto-save</span>
                 </label>
-                <button class="w-full py-5 bg-indigo-600 hover:bg-indigo-700 font-bold rounded-xl text-xl flex items-center justify-center gap-2">
-                    <i data-lucide="check-circle" class="w-5 h-5"></i> Save Settings
-                </button>
+                <button class="w-full py-5 bg-indigo-600 hover:bg-indigo-700 font-bold rounded-xl text-xl">Save Settings</button>
             </form>
         </div>
         <script src="https://cdn.jsdelivr.net/npm/lucide/dist/lucide.min.js"></script>
@@ -456,9 +418,9 @@ def settings():
     </html>
     ''', current_user=current_user)
 
-# ====================== RUN APP ======================
+# ====================== MAIN ======================
 if __name__ == '__main__':
-    print("CodeVault PRO v4 – GitHub-style UI running!")
+    print("CodeVault PRO v4 is running!")
     print("Visit: http://127.0.0.1:5000")
     print("Login: demo / demo")
     app.run(host='0.0.0.0', port=5000, debug=False)
