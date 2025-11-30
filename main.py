@@ -1,5 +1,5 @@
 # ================================================
-# CODEVAULT PRO v6 – DYNAMIC HIGHLIGHTING & REPO DELETE
+# CODEVAULT PRO v7 – MOBILE HAMBURGER MENU & UI ENHANCEMENTS
 # ================================================
 
 from flask import Flask, render_template_string, request, redirect, url_for, flash, abort, Response
@@ -12,6 +12,7 @@ import sqlite3
 from markupsafe import Markup 
 import json 
 import html # For escaping HTML in file names
+from sqlalchemy.exc import IntegrityError
 
 # ====================== APP SETUP ======================
 app = Flask(__name__)
@@ -41,7 +42,6 @@ class Repository(db.Model):
     is_public = db.Column(db.Boolean, default=True)
     owner_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    # Set cascade delete for files when repo is deleted
     files = db.relationship('CodeFile', backref='repo', lazy='dynamic', cascade="all, delete-orphan") 
     owner = db.relationship('User', backref='repositories')
 
@@ -61,12 +61,9 @@ def load_user(user_id):
 def fix_database():
     if not os.path.exists('codevault.db'):
         return
-    conn = sqlite3.connect('codevault.db')
-    c = conn.cursor()
-    # Check if necessary columns exist (omitted for brevity, assume schema is correct)
-    conn.close()
+    # Database fix logic (omitted for brevity)
+    pass
 
-# Function to determine Prism language class from filename
 def get_prism_language(filename):
     ext = os.path.splitext(filename)[1].lower()
     if ext in ['.py']: return 'python'
@@ -76,9 +73,8 @@ def get_prism_language(filename):
     elif ext in ['.json']: return 'json'
     elif ext in ['.md', '.markdown']: return 'markdown'
     elif ext in ['.sh']: return 'bash'
-    else: return 'clike' # Default for plain text files
+    else: return 'clike' 
 
-# Map file extensions to lucide icon names
 def get_file_icon(filename):
     ext = os.path.splitext(filename)[1].lower()
     if ext in ['.py']: return 'file-code'
@@ -99,37 +95,114 @@ with app.app_context():
     fix_database()
 
 
-# ====================== NAVBAR TEMPLATE ======================
+# ====================== NAVBAR TEMPLATE (New Mobile Sidebar) ======================
 NAVBAR_TEMPLATE = '''
+<style>
+    /* Custom styling for smooth sidebar transition */
+    .sidebar-transition {
+        transition: transform 0.3s ease-in-out;
+        transform: translateX(-100%);
+    }
+    .sidebar-open .sidebar-transition {
+        transform: translateX(0);
+    }
+</style>
+
 <div class="h-20"></div> 
 <nav class="bg-gray-900/90 backdrop-blur-sm border border-gray-800 shadow-xl rounded-xl p-4 flex justify-between items-center fixed top-0 left-0 right-0 z-50 mx-auto mt-4 w-[95%] lg:w-[90%] transition duration-300">
     <div class="flex items-center gap-2 lg:gap-3">
-        <i data-lucide="code" class="w-6 h-6 lg:w-8 lg:h-8 text-indigo-400"></i>
+        <i data-lucide="code" class="w-6 h-6 lg:w-8 lg:h-8 text-indigo-400 animate-pulse"></i>
         <a href="/" class="text-xl lg:text-2xl font-bold text-indigo-400 hover:text-indigo-300 transition duration-150">CodeVault</a>
     </div>
-    <div class="flex items-center gap-3 lg:gap-6">
-        <a href="/explore" class="text-gray-300 hover:text-white flex items-center gap-1 text-sm lg:text-base transition duration-150">
-            <i data-lucide="compass" class="w-4 h-4 lg:w-5 lg:h-5"></i> Explore
+
+    <div class="hidden lg:flex items-center gap-6">
+        <a href="/explore" class="text-gray-300 hover:text-white flex items-center gap-1 text-base transition duration-150 hover:scale-105">
+            <i data-lucide="compass" class="w-5 h-5"></i> Explore
         </a>
         {% if current_user.is_authenticated %}
-        <a href="/dashboard" class="text-gray-300 hover:text-white flex items-center gap-1 text-sm lg:text-base transition duration-150">
-            <i data-lucide="folder" class="w-4 h-4 lg:w-5 lg:h-5"></i> My Code
+        <a href="/dashboard" class="text-gray-300 hover:text-white flex items-center gap-1 text-base transition duration-150 hover:scale-105">
+            <i data-lucide="folder-kanban" class="w-5 h-5"></i> My Code
         </a>
-        <a href="/settings" class="text-gray-300 hover:text-white flex items-center gap-1 text-sm lg:text-base transition duration-150">
-            <i data-lucide="settings" class="w-4 h-4 lg:w-5 lg:h-5"></i> Settings
+        <a href="/settings" class="text-gray-300 hover:text-white flex items-center gap-1 text-base transition duration-150 hover:scale-105">
+            <i data-lucide="settings" class="w-5 h-5"></i> Settings
         </a>
-        <a href="/logout" class="text-red-400 hover:text-red-300 flex items-center gap-1 text-sm lg:text-base transition duration-150">
-            <i data-lucide="log-out" class="w-4 h-4 lg:w-5 lg:h-5"></i> Logout
+        <a href="/logout" class="text-red-400 hover:text-red-300 flex items-center gap-1 text-base transition duration-150 hover:scale-105">
+            <i data-lucide="log-out" class="w-5 h-5"></i> Logout
         </a>
         {% else %}
-        <a href="/login" class="bg-indigo-600 hover:bg-indigo-700 px-3 lg:px-6 py-1 lg:py-2 rounded-lg font-bold flex items-center gap-1 text-sm transition duration-150 hover:scale-[1.03]">
+        <a href="/login" class="bg-indigo-600 hover:bg-indigo-700 px-6 py-2 rounded-lg font-bold flex items-center gap-1 text-sm transition duration-150 hover:scale-[1.03]">
             <i data-lucide="log-in" class="w-4 h-4"></i> Login
         </a>
         {% endif %}
     </div>
+
+    <button id="menu-toggle" class="lg:hidden text-white hover:text-indigo-400 transition duration-150 p-1">
+        <i data-lucide="menu" class="w-6 h-6"></i>
+    </button>
 </nav>
+
+<div id="sidebar" class="sidebar-transition fixed top-0 left-0 h-full w-64 bg-gray-900 z-[60] border-r border-gray-700 p-6 pt-24 lg:hidden">
+    <div class="space-y-4">
+        <a href="/explore" class="block text-gray-300 hover:text-indigo-400 flex items-center gap-3 text-lg p-2 rounded-lg transition duration-150 hover:bg-gray-800">
+            <i data-lucide="compass" class="w-5 h-5"></i> Explore
+        </a>
+        {% if current_user.is_authenticated %}
+        <a href="/dashboard" class="block text-gray-300 hover:text-indigo-400 flex items-center gap-3 text-lg p-2 rounded-lg transition duration-150 hover:bg-gray-800">
+            <i data-lucide="folder-kanban" class="w-5 h-5"></i> My Code
+        </a>
+        <a href="/settings" class="block text-gray-300 hover:text-indigo-400 flex items-center gap-3 text-lg p-2 rounded-lg transition duration-150 hover:bg-gray-800">
+            <i data-lucide="settings" class="w-5 h-5"></i> Settings
+        </a>
+        <div class="h-px bg-gray-700 my-4"></div>
+        <a href="/logout" class="block text-red-400 hover:text-red-300 flex items-center gap-3 text-lg p-2 rounded-lg transition duration-150 hover:bg-gray-800">
+            <i data-lucide="log-out" class="w-5 h-5"></i> Logout
+        </a>
+        {% else %}
+        <a href="/login" class="block bg-indigo-600 hover:bg-indigo-700 px-4 py-3 rounded-lg font-bold text-center flex items-center justify-center gap-2 transition duration-150 hover:scale-[1.02]">
+            <i data-lucide="log-in" class="w-5 h-5"></i> Login / Register
+        </a>
+        {% endif %}
+    </div>
+</div>
+
+<div id="sidebar-overlay" class="fixed inset-0 bg-black/50 z-[55] opacity-0 pointer-events-none transition duration-300 lg:hidden"></div>
+
 <script src="https://cdn.jsdelivr.net/npm/lucide/dist/lucide.min.js"></script>
-<script>lucide.createIcons();</script>
+<script>
+    lucide.createIcons();
+    
+    // Mobile Sidebar Logic
+    const menuToggle = document.getElementById('menu-toggle');
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+    const body = document.body;
+
+    function toggleSidebar() {
+        body.classList.toggle('sidebar-open');
+        if (body.classList.contains('sidebar-open')) {
+            overlay.style.opacity = '1';
+            overlay.style.pointerEvents = 'auto';
+            body.style.overflow = 'hidden'; // Prevent scrolling the main content
+        } else {
+            overlay.style.opacity = '0';
+            overlay.style.pointerEvents = 'none';
+            body.style.overflow = 'auto';
+        }
+    }
+
+    menuToggle.addEventListener('click', toggleSidebar);
+    overlay.addEventListener('click', toggleSidebar);
+    
+    // Close sidebar on link click (important for mobile UX)
+    document.querySelectorAll('#sidebar a').forEach(link => {
+        link.addEventListener('click', () => {
+            if (body.classList.contains('sidebar-open')) {
+                toggleSidebar();
+            }
+        });
+    });
+
+</script>
 '''
 
 def render_navbar():
@@ -139,6 +212,8 @@ app.jinja_env.globals['navbar'] = render_navbar
 
 
 # ====================== ROUTES ======================
+
+# --- Authentication Routes ---
 @app.route('/')
 def index():
     return redirect('/explore')
@@ -155,7 +230,6 @@ def login():
         user = User.query.filter_by(username=username).first()
         
         if user:
-            # User exists
             if check_password_hash(user.password, password):
                 login_user(user)
                 flash('Login successful!')
@@ -164,7 +238,6 @@ def login():
                 flash('Incorrect password for existing account.')
                 return redirect(url_for('login'))
         else:
-            # New User, auto-register
             if len(username) < 3 or len(password) < 6:
                 flash('Username must be at least 3 characters and password at least 6 characters.')
                 return redirect(url_for('login'))
@@ -174,12 +247,17 @@ def login():
                 password=generate_password_hash(password),
                 display_name=username.capitalize()
             )
-            db.session.add(new_user)
-            db.session.commit()
-            
-            login_user(new_user)
-            flash(f'Welcome! Account for "{username}" created and you are logged in.')
-            return redirect('/dashboard')
+            try:
+                db.session.add(new_user)
+                db.session.commit()
+                login_user(new_user)
+                flash(f'Welcome! Account for "{username}" created and you are logged in.')
+                return redirect('/dashboard')
+            except IntegrityError:
+                db.session.rollback()
+                flash('Username already taken.')
+                return redirect(url_for('login'))
+
 
     return render_template_string('''
     <!DOCTYPE html>
@@ -192,7 +270,7 @@ def login():
             </h1>
             {% with messages = get_flashed_messages() %}
                 {% if messages %}
-                    <div class="mb-4 sm:mb-6 p-4 rounded-xl bg-red-800 text-red-200 flex items-center gap-2">
+                    <div class="mb-4 sm:mb-6 p-4 rounded-xl bg-red-800 text-red-200 flex items-center gap-2 animate-bounce-in">
                         <i data-lucide="alert-triangle" class="w-5 h-5"></i>
                         {% for message in messages %}
                             <p class="text-sm">{{ message }}</p>
@@ -201,8 +279,8 @@ def login():
                 {% endif %}
             {% endwith %}
             <form method="post" class="space-y-4 sm:space-y-6">
-                <input name="username" placeholder="Username (3+ chars)" required class="w-full px-4 py-3 sm:px-6 sm:py-4 bg-gray-700 rounded-xl text-base sm:text-lg">
-                <input name="password" type="password" placeholder="Password (6+ chars)" required class="w-full px-4 py-3 sm:px-6 sm:py-4 bg-gray-700 rounded-xl text-base sm:text-lg">
+                <input name="username" placeholder="Username (3+ chars)" required class="w-full px-4 py-3 sm:px-6 sm:py-4 bg-gray-700 rounded-xl text-base sm:text-lg focus:ring-2 focus:ring-indigo-500 transition duration-150">
+                <input name="password" type="password" placeholder="Password (6+ chars)" required class="w-full px-4 py-3 sm:px-6 sm:py-4 bg-gray-700 rounded-xl text-base sm:text-lg focus:ring-2 focus:ring-indigo-500 transition duration-150">
                 <button class="w-full py-3 sm:py-4 bg-indigo-600 hover:bg-indigo-700 font-bold rounded-xl text-lg sm:text-xl flex items-center justify-center gap-2 transition duration-150 hover:scale-[1.03]">
                     <i data-lucide="log-in" class="w-5 h-5"></i> Login / Register
                 </button>
@@ -221,6 +299,7 @@ def logout():
     logout_user()
     return redirect('/')
 
+# --- Main Views ---
 @app.route('/explore')
 def explore():
     repos = Repository.query.filter_by(is_public=True).order_by(Repository.created_at.desc()).all()
@@ -272,7 +351,7 @@ def dashboard():
             <h1 class="text-3xl sm:text-4xl font-bold mb-6 sm:mb-8 flex items-center gap-3"><i data-lucide="folder-kanban" class="w-6 h-6 sm:w-8 sm:h-8 text-indigo-400"></i> My Repositories</h1>
             <div class="grid gap-4 sm:gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {% for r in repos %}
-                <a href="/repo/{{ r.id }}" class="block bg-gray-800 p-4 sm:p-8 rounded-xl border border-gray-700 hover:border-indigo-500 transition duration-200 hover:shadow-indigo-500/30 hover:shadow-lg hover:scale-[1.02]">
+                <a href="/repo/{{ r.id }}" class="block bg-gray-800 p-4 sm:p-8 rounded-xl border border-gray-700 hover:border-indigo-500 transition duration-200 hover:shadow-indigo-500/30 hover:shadow-lg hover:scale-[1.02] active:scale-95">
                     <div class="flex items-center justify-between mb-2">
                         <h3 class="text-xl sm:text-2xl font-bold">{{ r.name }}</h3>
                         <i data-lucide="{% if r.is_public %}globe{% else %}lock{% endif %}" class="w-4 h-4 sm:w-5 sm:h-5 text-gray-400"></i>
@@ -293,7 +372,7 @@ def dashboard():
     </html>
     ''', repos=repos, current_user=current_user)
 
-# ====================== REPO DELETION ROUTE (NEW) ======================
+# --- Repository Actions ---
 @app.route('/repo/delete/<int:repo_id>', methods=['POST'])
 @login_required
 def delete_repo(repo_id):
@@ -306,12 +385,10 @@ def delete_repo(repo_id):
     flash(f'Repository "{repo.name}" and all associated files deleted successfully.')
     return redirect(url_for('dashboard'))
 
-# ====================== NEW REPO ======================
 @app.route('/repo/new', methods=['GET', 'POST'])
 @login_required
 def new_repo():
     if request.method == 'POST':
-        # Basic input cleaning
         repo_name = html.escape(request.form['name'].strip()) or 'Untitled Repo'
         
         repo = Repository(
@@ -334,8 +411,8 @@ def new_repo():
         <div class="flex-1 flex items-center justify-center p-4 sm:p-6">
             <form method="post" class="bg-gray-800 p-6 sm:p-10 rounded-2xl w-full max-w-lg space-y-4 sm:space-y-6 shadow-xl">
                 <h1 class="text-3xl sm:text-4xl font-bold flex items-center gap-3"><i data-lucide="plus-square" class="w-6 h-6 sm:w-8 sm:h-8 text-indigo-400"></i> New Repository</h1>
-                <input name="name" placeholder="Repository Name" required class="w-full px-4 py-3 sm:px-6 sm:py-4 bg-gray-700 rounded-xl">
-                <textarea name="description" placeholder="Description (optional)" class="w-full px-4 py-3 sm:px-6 sm:py-4 bg-gray-700 rounded-xl h-24 sm:h-32"></textarea>
+                <input name="name" placeholder="Repository Name" required class="w-full px-4 py-3 sm:px-6 sm:py-4 bg-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 transition duration-150">
+                <textarea name="description" placeholder="Description (optional)" class="w-full px-4 py-3 sm:px-6 sm:py-4 bg-gray-700 rounded-xl h-24 sm:h-32 focus:ring-2 focus:ring-indigo-500 transition duration-150"></textarea>
                 <label class="flex items-center gap-3 text-base sm:text-lg"><input type="checkbox" name="public" checked class="w-5 h-5 sm:w-6 sm:h-6"> <i data-lucide="globe" class="w-4 h-4 sm:w-5 sm:h-5"></i> Public</label>
                 <button class="w-full py-3 sm:py-4 bg-indigo-600 hover:bg-indigo-700 font-bold rounded-xl text-lg sm:text-xl flex items-center justify-center gap-2 transition duration-150 hover:scale-[1.02]">
                     <i data-lucide="check-circle" class="w-5 h-5 sm:w-6 sm:h-6"></i> Create Repository
@@ -348,7 +425,7 @@ def new_repo():
     </html>
     ''', current_user=current_user)
 
-# ====================== REPO EDITOR (DYNAMIC HIGHLIGHTING) ======================
+# --- Editor and File Actions ---
 @app.route('/repo/<int:repo_id>')
 @login_required
 def editor(repo_id):
@@ -359,7 +436,6 @@ def editor(repo_id):
     file_id = request.args.get('file', type=int)
     current_file = CodeFile.query.get(file_id) if file_id else (repo.files.first() if repo.files.count() > 0 else None)
     
-    # Pass data for client-side script
     file_content_json = json.dumps(current_file.content) if current_file else '""'
     file_content_safe = current_file.content if current_file else ''
     prism_language = get_prism_language(current_file.name) if current_file else 'clike'
@@ -397,12 +473,12 @@ def editor(repo_id):
                 background: transparent;
                 caret-color: white;
                 resize: none;
+                z-index: 2; /* Ensure textarea is above highlighting */
             }
             #highlighting {
                 pointer-events: none;
                 z-index: 1;
             }
-            /* Prism style override to fit the dark theme */
             .prism-twilight {
                 background-color: #111827 !important; /* gray-900 */
                 border-radius: 0;
@@ -411,19 +487,28 @@ def editor(repo_id):
     </head>
     <body class="h-full flex flex-col">
         {{ navbar() }}
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                <div class="fixed top-24 right-4 z-50 p-3 rounded-xl bg-green-700 text-white shadow-xl animate-fade-in-down">
+                    {% for message in messages %}
+                        <p class="text-sm flex items-center gap-2"><i data-lucide="info" class="w-4 h-4"></i>{{ message }}</p>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
         <div class="flex-1 flex flex-col lg:flex-row">
             <div class="w-full lg:w-80 bg-gray-800 border-r border-gray-700 p-4 sm:p-6 overflow-y-auto">
                 <h2 class="text-xl sm:text-2xl font-bold mb-4 sm:mb-6 flex items-center gap-2"><i data-lucide="folder-tree" class="w-5 h-5 sm:w-6 sm:h-6 text-indigo-400"></i> {{ repo.name }}</h2>
                 
                 <form method="POST" action="/repo/delete/{{ repo.id }}" onsubmit="return confirm('WARNING: This will permanently delete the repository and ALL files inside it. Are you sure?');" class="mb-6">
-                    <button type="submit" class="w-full px-3 py-2 bg-red-800 hover:bg-red-700 rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition duration-150 hover:scale-[1.01]">
+                    <button type="submit" class="w-full px-3 py-2 bg-red-800 hover:bg-red-700 rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition duration-150 hover:scale-[1.01] active:scale-95">
                         <i data-lucide="archive-restore" class="w-4 h-4"></i> Delete Repository
                     </button>
                 </form>
 
                 <div class="space-y-3">
                     {% for f in repo.files %}
-                    <a href="/repo/{{ repo.id }}?file={{ f.id }}" class="block p-3 rounded-lg font-medium flex items-center gap-3 transition duration-150 {% if f.id == (current_file.id if current_file else 0) %}bg-indigo-600 text-white shadow-md{% else %}bg-gray-700 hover:bg-gray-600 hover:shadow-sm{% endif %}">
+                    <a href="/repo/{{ repo.id }}?file={{ f.id }}" class="block p-3 rounded-lg font-medium flex items-center gap-3 transition duration-150 {% if f.id == (current_file.id if current_file else 0) %}bg-indigo-600 text-white shadow-md{% else %}bg-gray-700 hover:bg-gray-600 hover:shadow-sm{% endif %} hover:scale-[1.01] active:scale-95">
                         <i data-lucide="{{ get_file_icon(f.name) }}" class="w-5 h-5"></i>
                         <span class="truncate">{{ f.name }}</span>
                     </a>
@@ -432,8 +517,8 @@ def editor(repo_id):
                     <form action="/file/new" method="post" class="mt-6 sm:mt-8">
                         <input type="hidden" name="repo_id" value="{{ repo.id }}">
                         <div class="flex gap-2">
-                            <input name="name" placeholder="new-file.txt" required class="flex-1 px-3 py-2 bg-gray-700 rounded-l-lg text-sm">
-                            <button class="px-4 bg-indigo-600 hover:bg-indigo-700 rounded-r-lg font-bold transition duration-150 hover:scale-[1.05]"><i data-lucide="file-plus" class="w-5 h-5"></i></button>
+                            <input name="name" placeholder="new-file.txt" required class="flex-1 px-3 py-2 bg-gray-700 rounded-l-lg text-sm focus:ring-2 focus:ring-indigo-500 transition duration-150">
+                            <button class="px-4 bg-indigo-600 hover:bg-indigo-700 rounded-r-lg font-bold transition duration-150 hover:scale-[1.05] active:scale-95"><i data-lucide="file-plus" class="w-5 h-5"></i></button>
                         </div>
                     </form>
                 </div>
@@ -444,11 +529,11 @@ def editor(repo_id):
                     <h3 class="text-xl sm:text-2xl font-mono font-bold flex items-center gap-2"><i data-lucide="code" class="w-5 h-5 sm:w-6 sm:h-6 text-purple-400"></i> {{ current_file.name }}</h3>
                     <div class="flex items-center gap-2 sm:gap-4">
                         <form method="POST" action="/file/delete/{{ current_file.id }}" onsubmit="return confirm('Are you sure you want to delete {{ current_file.name }}?');">
-                            <button type="submit" class="px-3 sm:px-5 py-2 bg-red-600 hover:bg-red-700 rounded-lg font-medium text-sm flex items-center gap-2 transition duration-150 hover:scale-[1.03]">
+                            <button type="submit" class="px-3 sm:px-5 py-2 bg-red-600 hover:bg-red-700 rounded-lg font-medium text-sm flex items-center gap-2 transition duration-150 hover:scale-[1.03] active:scale-95">
                                 <i data-lucide="trash-2" class="w-4 h-4 sm:w-5 sm:h-5"></i> Delete
                             </button>
                         </form>
-                        <button onclick="copyRaw()" class="px-3 sm:px-5 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg font-medium text-sm flex items-center gap-2 transition duration-150 hover:scale-[1.03]">
+                        <button onclick="copyRaw()" class="px-3 sm:px-5 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg font-medium text-sm flex items-center gap-2 transition duration-150 hover:scale-[1.03] active:scale-95">
                             <i data-lucide="copy" class="w-4 h-4 sm:w-5 sm:h-5"></i> Raw Link
                         </button>
                         <span id="status" class="text-green-400 font-medium text-sm flex items-center gap-1"><i data-lucide="check" class="w-4 h-4"></i> Saved</span>
@@ -470,32 +555,31 @@ def editor(repo_id):
                 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/components/prism-markdown.min.js"></script>
                 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/components/prism-bash.min.js"></script>
                 <script>
-                    // Get elements
                     const codeEl = document.getElementById('code');
                     const statusEl = document.getElementById('status');
                     const highlightingPreEl = document.getElementById('highlighting');
                     const highlightingCodeEl = highlightingPreEl.querySelector('code');
                     const autoSave = {{ 'true' if current_user.auto_save else 'false' }};
+                    const prismLanguage = '{{ prism_language }}';
                     let timer;
 
-                    // Initial setup for highlighting
                     function updateHighlight() {
                         const content = codeEl.value;
-                        
-                        // Set text content and highlight
                         highlightingCodeEl.textContent = content;
+                        
+                        // Set the correct language class before highlighting
+                        highlightingCodeEl.className = 'language-' + prismLanguage;
+                        highlightingPreEl.className = 'language-' + prismLanguage;
+
                         Prism.highlightElement(highlightingCodeEl);
                         
-                        // Sync scrolling
                         highlightingPreEl.scrollTop = codeEl.scrollTop;
                         highlightingPreEl.scrollLeft = codeEl.scrollLeft;
                     }
                     
-                    // Initial content load
                     codeEl.value = JSON.parse({{ file_content_json }});
                     updateHighlight();
 
-                    // Event listeners
                     codeEl.addEventListener('input', function() {
                         updateHighlight();
                         if (!autoSave) return;
@@ -529,9 +613,7 @@ def editor(repo_id):
                         }, 1000);
                     });
 
-                    // Sync scroll on textarea and pre element
                     codeEl.addEventListener('scroll', updateHighlight);
-
 
                     function copyRaw() {
                         navigator.clipboard.writeText(location.origin + '/raw/{{ current_file.id }}');
@@ -552,10 +634,11 @@ def editor(repo_id):
     </html>
     ''', repo=repo, current_file=current_file, current_user=current_user, file_content_json=file_content_json, file_content_safe=file_content_safe, prism_language=prism_language)
 
-# ====================== SAVE FILE ======================
+# --- Remaining Backend Routes (same as V6) ---
 @app.route('/file/save', methods=['POST'])
 @login_required
 def save_file():
+    # ... (same logic as V6)
     try:
         data = request.get_json()
         file_id = data.get('file_id')
@@ -567,16 +650,14 @@ def save_file():
     if not f or f.repo.owner_id != current_user.id:
         abort(403)
     
-    # Simple input cleaning for content (though code editors usually handle this)
-    # Note: For security, content should not be displayed without proper escaping on any preview pages.
     f.content = content
     db.session.commit()
     return 'saved'
 
-# ====================== DELETE FILE ======================
 @app.route('/file/delete/<int:file_id>', methods=['POST'])
 @login_required
 def delete_file(file_id):
+    # ... (same logic as V6)
     f = CodeFile.query.get_or_404(file_id)
     if f.repo.owner_id != current_user.id:
         abort(403)
@@ -585,19 +666,16 @@ def delete_file(file_id):
     db.session.delete(f)
     db.session.commit()
     flash(f'File "{f.name}" deleted successfully.')
-    
-    # Redirect back to the repo
     return redirect(url_for('editor', repo_id=repo_id))
 
-# ====================== NEW FILE ======================
 @app.route('/file/new', methods=['POST'])
 @login_required
 def new_file():
+    # ... (same logic as V6)
     repo = Repository.query.get_or_404(request.form['repo_id'])
     if repo.owner_id != current_user.id:
         abort(403)
     
-    # Basic input cleaning
     filename = html.escape(request.form['name'].strip())
     
     if not filename:
@@ -609,11 +687,10 @@ def new_file():
     db.session.commit()
     return redirect(f'/repo/{repo.id}?file={f.id}')
 
-# ====================== RAW FILE DOWNLOAD (Updated URL) ======================
 @app.route('/raw/<int:file_id>')
 def raw(file_id):
+    # ... (same logic as V6)
     f = CodeFile.query.get_or_404(file_id)
-    # Check if public or owner
     if not f.repo.is_public and (not current_user.is_authenticated or f.repo.owner_id != current_user.id):
         abort(403)
 
@@ -625,7 +702,6 @@ def raw(file_id):
         }
     )
 
-# ====================== SETTINGS ======================
 @app.route('/settings', methods=['GET', 'POST'])
 @login_required
 def settings():
@@ -651,7 +727,7 @@ def settings():
             <h1 class="text-3xl sm:text-4xl font-bold mb-6 sm:mb-10 flex items-center gap-3"><i data-lucide="settings" class="w-6 h-6 sm:w-8 sm:h-8 text-indigo-400"></i> Settings</h1>
             {% with messages = get_flashed_messages() %}
                 {% if messages %}
-                    <div class="mb-4 sm:mb-6 p-4 rounded-xl bg-green-800 text-green-200 flex items-center gap-2">
+                    <div class="mb-4 sm:mb-6 p-4 rounded-xl bg-green-800 text-green-200 flex items-center gap-2 animate-fade-in-down">
                         <i data-lucide="check-circle" class="w-5 h-5"></i>
                         {% for message in messages %}
                             <p class="text-sm">{{ message }}</p>
@@ -662,17 +738,17 @@ def settings():
             <form method="post" class="bg-gray-800 p-6 sm:p-8 rounded-2xl space-y-6 sm:space-y-8 shadow-xl">
                 <div>
                     <label class="block text-base sm:text-xl mb-3 flex items-center gap-2"><i data-lucide="user" class="w-5 h-5"></i> Display Name</label>
-                    <input name="display_name" value="{{ current_user.display_name }}" class="w-full px-4 py-3 sm:px-6 sm:py-4 bg-gray-700 rounded-xl">
+                    <input name="display_name" value="{{ current_user.display_name }}" class="w-full px-4 py-3 sm:px-6 sm:py-4 bg-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 transition duration-150">
                 </div>
                 <div>
                     <label class="block text-base sm:text-xl mb-3 flex items-center gap-2"><i data-lucide="key" class="w-5 h-5"></i> New Password (optional)</label>
-                    <input name="password" type="password" placeholder="Leave blank to keep current" class="w-full px-4 py-3 sm:px-6 sm:py-4 bg-gray-700 rounded-xl">
+                    <input name="password" type="password" placeholder="Leave blank to keep current" class="w-full px-4 py-3 sm:px-6 sm:py-4 bg-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 transition duration-150">
                 </div>
                 <label class="flex items-center gap-4 text-base sm:text-xl cursor-pointer">
-                    <input type="checkbox" name="auto_save" {% if current_user.auto_save %}checked{% endif %} class="w-6 h-6 sm:w-8 sm:h-8">
+                    <input type="checkbox" name="auto_save" {% if current_user.auto_save %}checked{% endif %} class="w-6 h-6 sm:w-8 sm:h-8 accent-indigo-500">
                     <span class="flex items-center gap-2"><i data-lucide="save" class="w-5 h-5 sm:w-6 sm:h-6"></i> Enable Auto-save</span>
                 </label>
-                <button class="w-full py-4 sm:py-5 bg-indigo-600 hover:bg-indigo-700 font-bold rounded-xl text-lg sm:text-xl flex items-center justify-center gap-2 transition duration-150 hover:scale-[1.03]">
+                <button class="w-full py-4 sm:py-5 bg-indigo-600 hover:bg-indigo-700 font-bold rounded-xl text-lg sm:text-xl flex items-center justify-center gap-2 transition duration-150 hover:scale-[1.03] active:scale-95">
                     <i data-lucide="disc-3" class="w-5 h-5 sm:w-6 sm:h-6 animate-spin-slow"></i> Save Settings
                 </button>
             </form>
@@ -683,8 +759,9 @@ def settings():
     </html>
     ''', current_user=current_user)
 
+
 # ====================== MAIN ======================
 if __name__ == '__main__':
-    print("CodeVault PRO v6 is running! (Dynamic Highlighting & Repository Delete Added)")
+    print("CodeVault PRO v7 is running! (Mobile Hamburger Menu & UI polish applied)")
     print("Visit: http://127.0.0.1:5000")
     app.run(host='0.0.0.0', port=5000, debug=False)
