@@ -183,13 +183,6 @@ app.jinja_env.globals['navbar'] = render_navbar
 
 # ====================== ADMIN ROUTES ======================
 
-@app.route('/admin')
-@admin_required
-def admin_panel():
-    users = User.query.all()
-    repos = Repository.query.order_by(Repository.created_at.desc()).all()
-    return render_template('admin_panel.html', users=users, repos=repos)
-
 # The content for admin_panel.html is what was previously inline in v8.1
 # You will need to extract the HTML content from the previous admin_panel route
 # and save it to templates/admin_panel.html for this to work perfectly.
