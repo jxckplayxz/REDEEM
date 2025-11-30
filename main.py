@@ -9,6 +9,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 import os
 import sqlite3
+from markupsafe import Markup # Import Markup for safer rendering
 
 # ====================== APP SETUP ======================
 app = Flask(__name__)
@@ -84,9 +85,8 @@ with app.app_context():
         db.session.add(demo)
         db.session.commit()
 
-# ====================== NAVBAR (NO CHANGE NEEDED HERE) ======================
-# The CSS for sticky/fixed navbar is correct here.
-app.jinja_env.globals['navbar'] = '''
+# ====================== NAVBAR (FIXED WITH FUNCTION CALL) ======================
+NAVBAR_TEMPLATE = '''
 <nav class="bg-gray-900 border-b border-gray-800 px-4 py-3 flex justify-between items-center sticky top-0 z-50">
     <div class="flex items-center gap-3">
         <i data-lucide="code" class="w-8 h-8 text-indigo-400"></i>
@@ -116,6 +116,16 @@ app.jinja_env.globals['navbar'] = '''
 <script src="https://cdn.jsdelivr.net/npm/lucide/dist/lucide.min.js"></script>
 <script>lucide.createIcons();</script>
 '''
+
+# Define a function to render the navbar template
+# This ensures the internal Jinja logic (like the if/else for login) is executed
+def render_navbar():
+    # render_template_string executes the Jinja logic, and we use Markup to mark it as safe HTML
+    return Markup(render_template_string(NAVBAR_TEMPLATE, current_user=current_user))
+
+# Register the function globally so templates can call it as {{ navbar() }}
+app.jinja_env.globals['navbar'] = render_navbar
+
 
 # ====================== ROUTES ======================
 @app.route('/')
@@ -163,8 +173,8 @@ def explore():
     <html class="h-full bg-gray-900 text-white">
     <head><title>Explore</title><script src="https://cdn.tailwindcss.com"></script></head>
     <body class="h-full flex flex-col">
-        {{ navbar|safe }}
-        <div class="p-6 max-w-6xl mx-auto flex-1 w-full"> <h1 class="text-4xl font-bold mb-8">Public Repositories</h1>
+        {{ navbar() }} <div class="p-6 max-w-6xl mx-auto flex-1 w-full"> 
+            <h1 class="text-4xl font-bold mb-8">Public Repositories</h1>
             <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {% for r in repos %}
                 <a href="/repo/{{ r.id }}" class="block bg-gray-800 p-6 rounded-xl border border-gray-700 hover:border-indigo-500 transition">
@@ -191,8 +201,8 @@ def dashboard():
     <html class="h-full bg-gray-900 text-white">
     <head><title>Dashboard</title><script src="https://cdn.tailwindcss.com"></script></head>
     <body class="h-full flex flex-col">
-        {{ navbar|safe }}
-        <div class="p-6 max-w-6xl mx-auto flex-1 w-full"> <a href="/repo/new" class="inline-block bg-indigo-600 hover:bg-indigo-700 px-8 py-4 rounded-xl font-bold text-xl mb-8">+ New Repository</a>
+        {{ navbar() }} <div class="p-6 max-w-6xl mx-auto flex-1 w-full">
+            <a href="/repo/new" class="inline-block bg-indigo-600 hover:bg-indigo-700 px-8 py-4 rounded-xl font-bold text-xl mb-8">+ New Repository</a>
             <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {% for r in repos %}
                 <a href="/repo/{{ r.id }}" class="block bg-gray-800 p-8 rounded-xl border border-gray-700 hover:border-indigo-500 transition">
@@ -210,7 +220,7 @@ def dashboard():
     </html>
     ''', repos=repos, current_user=current_user)
 
-# ====================== NEW REPO (FIXED) ======================
+# ====================== NEW REPO ======================
 @app.route('/repo/new', methods=['GET', 'POST'])
 @login_required
 def new_repo():
@@ -231,8 +241,7 @@ def new_repo():
     <html class="h-full bg-gray-900 text-white">
     <head><title>New Repo</title><script src="https://cdn.tailwindcss.com"></script></head>
     <body class="h-full flex flex-col">
-        {{ navbar|safe }}
-        <div class="flex-1 flex items-center justify-center p-6">
+        {{ navbar() }} <div class="flex-1 flex items-center justify-center p-6">
             <form method="post" class="bg-gray-800 p-10 rounded-2xl w-full max-w-lg space-y-6">
                 <h1 class="text-4xl font-bold">New Repository</h1>
                 <input name="name" placeholder="Repository Name" required class="w-full px-6 py-4 bg-gray-700 rounded-xl">
@@ -247,7 +256,7 @@ def new_repo():
     </html>
     ''', current_user=current_user)
 
-# ====================== REPO EDITOR (NO CHANGE NEEDED HERE) ======================
+# ====================== REPO EDITOR ======================
 @app.route('/repo/<int:repo_id>')
 @login_required
 def editor(repo_id):
@@ -261,8 +270,7 @@ def editor(repo_id):
     <html class="h-full bg-gray-900 text-white">
     <head><title>{{ repo.name }} - CodeVault</title><meta name="viewport" content="width=device-width, initial-scale=1"><script src="https://cdn.tailwindcss.com"></script></head>
     <body class="h-full flex flex-col">
-        {{ navbar|safe }}
-        <div class="flex-1 flex flex-col lg:flex-row">
+        {{ navbar() }} <div class="flex-1 flex flex-col lg:flex-row">
             <div class="w-full lg:w-80 bg-gray-800 border-r border-gray-700 p-6 overflow-y-auto">
                 <h2 class="text-2xl font-bold mb-6">{{ repo.name }}</h2>
                 <div class="space-y-3">
@@ -367,7 +375,7 @@ def raw(repo_id, file_id):
         }
     )
 
-# ====================== SETTINGS (NO CHANGE NEEDED HERE) ======================
+# ====================== SETTINGS ======================
 @app.route('/settings', methods=['GET', 'POST'])
 @login_required
 def settings():
@@ -388,8 +396,8 @@ def settings():
         <script src="https://cdn.tailwindcss.com"></script>
     </head>
     <body class="h-full flex flex-col">
-        {{ navbar|safe }}
-        <div class="p-10 max-w-2xl mx-auto flex-1 w-full"> <h1 class="text-4xl font-bold mb-10">Settings</h1>
+        {{ navbar() }} <div class="p-10 max-w-2xl mx-auto flex-1 w-full">
+            <h1 class="text-4xl font-bold mb-10">Settings</h1>
             {% with messages = get_flashed_messages() %}
                 {% if messages %}
                     <div class="mb-6 p-4 rounded-xl bg-green-800 text-green-200">
