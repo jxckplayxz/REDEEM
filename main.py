@@ -1,64 +1,31 @@
 import os
-from flask import Flask, render_template
-import json
+from flask import Flask, render_template_string
 
 app = Flask(__name__)
 
-# Route for the main chat page
+# Basic Python Flask application to serve the single HTML file.
+# All application logic (Firebase, UI rendering) is handled client-side
+# in the index.html using JavaScript.
+
 @app.route('/')
 def index():
     """
-    Renders the main chat interface, injecting environment-specific
-    Firebase configuration into the HTML template.
-    
-    NOTE: This application uses Firebase Firestore for data storage, 
-    so no Flask-SQLAlchemy or other local SQL database is required.
+    Renders the index.html content.
+    The HTML content is read directly from the index.html file.
     """
-    # Retrieve mandatory environment variables
-    app_id = os.environ.get('__app_id', 'default-chat-app-id')
-    
-    # We must retrieve the config as a JSON string and pass it as a string
-    # for the JavaScript to parse.
-    firebase_config_json = os.environ.get('__firebase_config', '{}')
-    
-    initial_auth_token = os.environ.get('__initial_auth_token', '')
-    
-    return render_template('index.html',
-                           app_id=app_id,
-                           firebase_config=firebase_config_json,
-                           initial_auth_token=initial_auth_token)
+    try:
+        # Read the content of the index.html file
+        with open('index.html', 'r', encoding='utf-8') as f:
+            html_content = f.read()
+        return render_template_string(html_content)
+    except FileNotFoundError:
+        return "Error: index.html not found.", 404
+    except Exception as e:
+        return f"An error occurred: {e}", 500
 
 if __name__ == '__main__':
- import os
-from flask import Flask, render_template
-import json
-
-app = Flask(__name__)
-
-# Route for the main chat page
-@app.route('/')
-def index():
-    """
-    Renders the main chat interface, injecting environment-specific
-    Firebase configuration into the HTML template.
-    
-    NOTE: This application uses Firebase Firestore for data storage, 
-    so no Flask-SQLAlchemy or other local SQL database is required.
-    """
-    # Retrieve mandatory environment variables
-    app_id = os.environ.get('__app_id', 'default-chat-app-id')
-    
-    # We must retrieve the config as a JSON string and pass it as a string
-    # for the JavaScript to parse.
-    firebase_config_json = os.environ.get('__firebase_config', '{}')
-    
-    initial_auth_token = os.environ.get('__initial_auth_token', '')
-    
-    return render_template('index.html',
-                           app_id=app_id,
-                           firebase_config=firebase_config_json,
-                           initial_auth_token=initial_auth_token)
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    # Running on a development server. In a production environment,
+    # this should be deployed using a WSGI server like Gunicorn or uWSGI.
+    print("Starting Flask server. Access the app at http://127.0.0.1:5000/")
+    # Debug is set to False as a default best practice, but can be set to True for development
+    app.run(debug=False)
