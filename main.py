@@ -23,9 +23,7 @@ def index():
     except Exception as e:
         return f"An error occurred: {e}", 500
 
-if __name__ == '__main__':
-    # Running on a development server. In a production environment,
-    # this should be deployed using a WSGI server like Gunicorn or uWSGI.
-    print("Starting Flask server. Access the app at http://127.0.0.1:5000/")
-    # Debug is set to False as a default best practice, but can be set to True for development
-    app.run(debug=False)
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
