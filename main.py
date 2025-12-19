@@ -16,40 +16,42 @@ HEADERS = {
     "Connection": "keep-alive",
 }
 
-# ===== HTML TEMPLATE (all {} in CSS are escaped with {{ }}) =====
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-<title>Advanced Proxy Browser</title>
+<title>Python Proxy</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-body{{margin:0;background:#0b0b0b;color:white;font-family:Arial}}
-header{{background:#111;padding:10px}}
-form{{display:flex;gap:10px}}
+body{{margin:0;padding:0;font-family:Arial;background:#0b0b0b;color:white}}
+header{{background:#111;padding:10px;display:flex;gap:10px}}
 input{{flex:1;padding:10px;background:#1a1a1a;color:white;border:none;border-radius:6px}}
 button{{padding:10px 18px;background:#4f46e5;border:none;color:white;border-radius:6px;cursor:pointer}}
-iframe{{width:100%;height:calc(100vh - 70px);border:none}}
-footer{{text-align:center;font-size:12px;color:#666;padding:5px}}
 </style>
+<script>
+function loadPage() {{
+    var input = document.getElementById("urlInput").value;
+    if(!input) return;
+    var proxyUrl = "/proxy?url=" + encodeURIComponent(input);
+    window.location.href = proxyUrl;
+}}
+</script>
 </head>
 <body>
 <header>
-<form action="/go" method="get">
-<input name="q" placeholder="Search or enter URL">
-<button>Go</button>
-</form>
+<input id="urlInput" placeholder="Search or enter URL">
+<button onclick="loadPage()">Go</button>
 </header>
-<iframe src="{page}"></iframe>
-<footer>Python Advanced Proxy</footer>
+<main>
+<p style="text-align:center;margin-top:50px;">Enter a URL or search term above and click Go</p>
+</main>
 </body>
 </html>
 """
 
-# ===== URL Normalizer =====
-def normalize(q):
+def normalize_url(q):
     if not q:
-        return None
+        return ""
     q = q.strip()
     if " " in q:
         return f"https://duckduckgo.com/html/?q={quote(q)}"
@@ -57,24 +59,10 @@ def normalize(q):
         return "https://" + q
     return q
 
-# ===== Home Page =====
 @app.route("/")
 def home():
-    try:
-        return HTML_TEMPLATE.format(page="")
-    except Exception as e:
-        return f"<h2>Error rendering home page</h2><pre>{e}</pre>"
+    return HTML_TEMPLATE
 
-# ===== Go/Search Page =====
-@app.route("/go")
-def go():
-    q = request.args.get("q", "")
-    url = normalize(q)
-    if not url:
-        return HTML_TEMPLATE.format(page="")
-    return HTML_TEMPLATE.format(page="/proxy?url=" + quote(url))
-
-# ===== Proxy Endpoint =====
 @app.route("/proxy")
 def proxy():
     raw_url = request.args.get("url")
@@ -82,6 +70,7 @@ def proxy():
         return "<h2>No URL provided</h2>", 400
 
     url = unquote(raw_url)
+    url = normalize_url(url)
 
     try:
         r = requests.get(url, headers=HEADERS, timeout=25, allow_redirects=True)
@@ -90,7 +79,6 @@ def proxy():
 
     content_type = r.headers.get("Content-Type", "")
 
-    # Stream non-HTML content directly
     if "text/html" not in content_type:
         return Response(r.content, content_type=content_type)
 
@@ -112,6 +100,5 @@ def proxy():
     except Exception as e:
         return f"<h2>Error parsing HTML</h2><pre>{e}</pre>"
 
-# ===== Run =====
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080, debug=True)
