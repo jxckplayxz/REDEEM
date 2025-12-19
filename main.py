@@ -5,7 +5,6 @@ from urllib.parse import urljoin, quote, unquote
 
 app = Flask(__name__)
 
-# Strong browser-like headers
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -17,7 +16,7 @@ HEADERS = {
     "Connection": "keep-alive",
 }
 
-HTML = """
+HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
@@ -49,6 +48,7 @@ footer{text-align:center;font-size:12px;color:#666;padding:5px}
 def normalize(q):
     if not q:
         return None
+    q = q.strip()
     if " " in q:
         return f"https://duckduckgo.com/html/?q={quote(q)}"
     if not q.startswith("http"):
@@ -57,56 +57,55 @@ def normalize(q):
 
 @app.route("/")
 def home():
-    return HTML.format(page="")
+    try:
+        return HTML_TEMPLATE.format(page="")
+    except Exception as e:
+        return f"<h2>Error rendering home page</h2><pre>{e}</pre>"
 
 @app.route("/go")
 def go():
     q = request.args.get("q", "")
     url = normalize(q)
     if not url:
-        return HTML.format(page="")
-    return HTML.format(page="/proxy?url=" + quote(url))
+        return HTML_TEMPLATE.format(page="")
+    return HTML_TEMPLATE.format(page="/proxy?url=" + quote(url))
 
 @app.route("/proxy")
 def proxy():
     raw_url = request.args.get("url")
     if not raw_url:
-        return "No URL provided", 400
+        return "<h2>No URL provided</h2>", 400
 
     url = unquote(raw_url)
 
     try:
-        r = requests.get(
-            url,
-            headers=HEADERS,
-            timeout=25,
-            allow_redirects=True
-        )
+        r = requests.get(url, headers=HEADERS, timeout=25, allow_redirects=True)
     except requests.exceptions.RequestException as e:
         return f"<h2>Failed to load site</h2><pre>{e}</pre>"
 
     content_type = r.headers.get("Content-Type", "")
 
-    # If not HTML (images, fonts, etc), stream raw
+    # Non-HTML content (images, CSS, JS)
     if "text/html" not in content_type:
         return Response(r.content, content_type=content_type)
 
-    soup = BeautifulSoup(r.text, "html.parser")
-
-    for tag in soup.find_all(["a", "img", "script", "link", "iframe"]):
-        attr = "href" if tag.name in ["a", "link"] else "src"
-        if tag.has_attr(attr):
-            new_url = urljoin(url, tag[attr])
-            tag[attr] = "/proxy?url=" + quote(new_url)
-
-    return Response(
-        str(soup),
-        headers={
-            "Content-Security-Policy":
-                "default-src * data: blob: 'unsafe-inline' 'unsafe-eval';",
-            "X-Frame-Options": "ALLOWALL"
-        }
-    )
+    try:
+        soup = BeautifulSoup(r.text, "html.parser")
+        for tag in soup.find_all(["a", "img", "script", "link", "iframe"]):
+            attr = "href" if tag.name in ["a", "link"] else "src"
+            if tag.has_attr(attr):
+                new_url = urljoin(url, tag[attr])
+                tag[attr] = "/proxy?url=" + quote(new_url)
+        return Response(
+            str(soup),
+            headers={
+                "Content-Security-Policy": "default-src * data: blob: 'unsafe-inline' 'unsafe-eval';",
+                "X-Frame-Options": "ALLOWALL"
+            }
+        )
+    except Exception as e:
+        return f"<h2>Error parsing HTML</h2><pre>{e}</pre>"
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+    # Debug=True shows full errors if you run locally
+    app.run(host="0.0.0.0", port=8080, debug=True)
