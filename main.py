@@ -1,104 +1,55 @@
-from flask import Flask, request, Response
-import requests
-from bs4 import BeautifulSoup
-from urllib.parse import urljoin, quote, unquote
+from flask import Flask, request, jsonify, send_file
+import os, random
 
 app = Flask(__name__)
 
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/122.0.0.0 Safari/537.36"
-    ),
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept": "*/*",
-    "Connection": "keep-alive",
-}
-
-HTML_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-<title>Python Proxy</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-body{{margin:0;padding:0;font-family:Arial;background:#0b0b0b;color:white}}
-header{{background:#111;padding:10px;display:flex;gap:10px}}
-input{{flex:1;padding:10px;background:#1a1a1a;color:white;border:none;border-radius:6px}}
-button{{padding:10px 18px;background:#4f46e5;border:none;color:white;border-radius:6px;cursor:pointer}}
-</style>
-<script>
-function loadPage() {{
-    var input = document.getElementById("urlInput").value;
-    if(!input) return;
-    var proxyUrl = "/proxy?url=" + encodeURIComponent(input);
-    window.location.href = proxyUrl;
-}}
-</script>
-</head>
-<body>
-<header>
-<input id="urlInput" placeholder="Search or enter URL">
-<button onclick="loadPage()">Go</button>
-</header>
-<main>
-<p style="text-align:center;margin-top:50px;">Enter a URL or search term above and click Go</p>
-</main>
-</body>
-</html>
-"""
-
-def normalize_url(q):
-    if not q:
-        return ""
-    q = q.strip()
-    if " " in q:
-        return f"https://duckduckgo.com/html/?q={quote(q)}"
-    if not q.startswith("http"):
-        return "https://" + q
-    return q
+UPLOAD_DIR = "ads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 @app.route("/")
-def home():
-    return HTML_TEMPLATE
+def index():
+    return """
+    <html>
+    <head><title>Ad Upload</title></head>
+    <body style="background:#111;color:white;font-family:sans-serif">
+        <h2>Upload Video Ad</h2>
+        <form action="/upload" method="post" enctype="multipart/form-data">
+            <input type="file" name="video" accept=".mp4,.webm" required>
+            <br><br>
+            <button type="submit">Upload</button>
+        </form>
+    </body>
+    </html>
+    """
 
-@app.route("/proxy")
-def proxy():
-    raw_url = request.args.get("url")
-    if not raw_url:
-        return "<h2>No URL provided</h2>", 400
+@app.route("/upload", methods=["POST"])
+def upload():
+    if "video" not in request.files:
+        return "No file", 400
 
-    url = unquote(raw_url)
-    url = normalize_url(url)
+    video = request.files["video"]
+    if not video.filename.endswith((".mp4", ".webm")):
+        return "Invalid format", 400
 
-    try:
-        r = requests.get(url, headers=HEADERS, timeout=25, allow_redirects=True)
-    except requests.exceptions.RequestException as e:
-        return f"<h2>Failed to load site</h2><pre>{e}</pre>"
+    path = os.path.join(UPLOAD_DIR, video.filename)
+    video.save(path)
+    return "Uploaded successfully"
 
-    content_type = r.headers.get("Content-Type", "")
+@app.route("/get_ad")
+def get_ad():
+    ads = [f for f in os.listdir(UPLOAD_DIR) if f.endswith((".mp4", ".webm"))]
+    if not ads:
+        return jsonify({"error": "No ads"}), 404
 
-    if "text/html" not in content_type:
-        return Response(r.content, content_type=content_type)
+    ad = random.choice(ads)
+    return jsonify({
+        "video_url": f"/video/{ad}"
+    })
 
-    try:
-        soup = BeautifulSoup(r.text, "html.parser")
-        for tag in soup.find_all(["a", "img", "script", "link", "iframe"]):
-            attr = "href" if tag.name in ["a", "link"] else "src"
-            if tag.has_attr(attr):
-                new_url = urljoin(url, tag[attr])
-                tag[attr] = "/proxy?url=" + quote(new_url)
-
-        return Response(
-            str(soup),
-            headers={
-                "Content-Security-Policy": "default-src * data: blob: 'unsafe-inline' 'unsafe-eval';",
-                "X-Frame-Options": "ALLOWALL"
-            }
-        )
-    except Exception as e:
-        return f"<h2>Error parsing HTML</h2><pre>{e}</pre>"
+@app.route("/video/<name>")
+def serve_video(name):
+    path = os.path.join(UPLOAD_DIR, name)
+    return send_file(path, mimetype="video/mp4")
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080, debug=True)
+    app.run(host="0.0.0.0", port=5000)
