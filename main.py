@@ -1,55 +1,44 @@
-from flask import Flask, request, jsonify, send_file
-import os, random
+from flask import Flask, request, jsonify, send_from_directory
+import os
+import random
 
 app = Flask(__name__)
 
-UPLOAD_DIR = "ads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+VIDEO_DIR = "videos"
+os.makedirs(VIDEO_DIR, exist_ok=True)
 
-@app.route("/")
-def index():
-    return """
-    <html>
-    <head><title>Ad Upload</title></head>
-    <body style="background:#111;color:white;font-family:sans-serif">
-        <h2>Upload Video Ad</h2>
-        <form action="/upload" method="post" enctype="multipart/form-data">
-            <input type="file" name="video" accept=".mp4,.webm" required>
-            <br><br>
-            <button type="submit">Upload</button>
-        </form>
-    </body>
-    </html>
-    """
+# Upload endpoint
+@app.route("/upload_video", methods=["POST"])
+def upload_video():
+    if "file" not in request.files:
+        return jsonify({"error": "No file part"}), 400
 
-@app.route("/upload", methods=["POST"])
-def upload():
-    if "video" not in request.files:
-        return "No file", 400
+    file = request.files["file"]
+    if file.filename == "":
+        return jsonify({"error": "No selected file"}), 400
 
-    video = request.files["video"]
-    if not video.filename.endswith((".mp4", ".webm")):
-        return "Invalid format", 400
+    if not file.filename.endswith(".webm"):
+        return jsonify({"error": "Only .webm files allowed"}), 400
 
-    path = os.path.join(UPLOAD_DIR, video.filename)
-    video.save(path)
-    return "Uploaded successfully"
+    save_path = os.path.join(VIDEO_DIR, file.filename)
+    file.save(save_path)
 
-@app.route("/get_ad")
-def get_ad():
-    ads = [f for f in os.listdir(UPLOAD_DIR) if f.endswith((".mp4", ".webm"))]
-    if not ads:
-        return jsonify({"error": "No ads"}), 404
+    return jsonify({"success": True, "filename": file.filename})
 
-    ad = random.choice(ads)
-    return jsonify({
-        "video_url": f"/video/{ad}"
-    })
+# Endpoint to get random video
+@app.route("/random_video")
+def random_video():
+    videos = os.listdir(VIDEO_DIR)
+    if not videos:
+        return jsonify({"error": "No videos available"}), 404
 
-@app.route("/video/<name>")
-def serve_video(name):
-    path = os.path.join(UPLOAD_DIR, name)
-    return send_file(path, mimetype="video/mp4")
+    video = random.choice(videos)
+    return jsonify({"video": video})
+
+# Endpoint to serve videos
+@app.route("/videos/<filename>")
+def serve_video(filename):
+    return send_from_directory(VIDEO_DIR, filename)
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(port=5000)
