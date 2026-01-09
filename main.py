@@ -1,173 +1,143 @@
-from flask import Flask, request, render_template_string
-import random, string
+import threading
+import random
+import string
+from flask import Flask, request, render_template_string, redirect
 
 app = Flask(__name__)
 
-ADMIN_TOKEN = "1234t"
+# -----------------------
+# Key system storage
+# -----------------------
+keys = {}  # format: key: {"perm": bool, "used_by": None or username}
+used_keys = {}  # key: username
 
-# key -> {"perm": bool}
-KEYS = {}
-
-# ======================
-# KEY GENERATION
-# ======================
+# -----------------------
+# Helper functions
+# -----------------------
 def generate_key(perm=False):
-    key = "VZ_" + "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
-    KEYS[key] = {"perm": perm}
+    """Generates a VZ_ key"""
+    random_part = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+    key = f"VZ_{random_part}"
+    keys[key] = {"perm": perm, "used_by": None}
     return key
 
-# ======================
-# VALIDATE (ROBLOX)
-# ======================
+def validate_key(input_key, username):
+    """Check if key is valid and lock to username"""
+    if input_key not in keys:
+        return False
+    if keys[input_key]["used_by"] is not None and keys[input_key]["used_by"] != username:
+        return False
+    keys[input_key]["used_by"] = username
+    return True
+
+def revoke_key(key):
+    if key in keys:
+        del keys[key]
+
+# -----------------------
+# Routes
+# -----------------------
+
+# Home page
+@app.route("/")
+def home():
+    return render_template_string("""
+        <html>
+            <head><title>Vertex-Z Key System</title></head>
+            <body style="font-family:sans-serif;">
+                <h1>Welcome to Vertex-Z Key System</h1>
+                <p>Use <code>/validate?key=YOUR_KEY&user=USERNAME</code> to validate your key in Roblox.</p>
+                <p>Admin? Visit <a href="/admin?token=1234t">Admin Panel</a></p>
+            </body>
+        </html>
+    """)
+
+# Key validation route (Roblox)
 @app.route("/validate")
 def validate():
     key = request.args.get("key")
-    if key in KEYS:
-        return "VALID"
-    return "INVALID"
+    username = request.args.get("user")
+    if not key or not username:
+        return "Missing key or username", 400
 
-# ======================
-# LOOTLABS GENERATE
-# ======================
-@app.route("/generate")
-def generate():
-    if request.args.get("from") != "lootlabs":
-        return "Invalid source"
+    if validate_key(key, username):
+        return f"Key valid! Locked to {username}."
+    else:
+        return "Invalid or already used key!", 403
 
-    key = generate_key(perm=False)
-    return render_template_string(GENERATE_HTML, key=key)
-
-# ======================
-# ADMIN DASHBOARD
-# ======================
-@app.route("/admin", methods=["GET", "POST"])
+# Admin panel
+@app.route("/admin")
 def admin():
     token = request.args.get("token")
-    if token != ADMIN_TOKEN:
-        return "Unauthorized"
+    if token != "1234t":
+        return "Unauthorized", 401
 
-    new_key = None
-    if request.method == "POST":
-        new_key = generate_key(perm=True)
+    # Admin dashboard page
+    html = """
+    <html>
+    <head>
+        <title>Admin Panel</title>
+        <style>
+            body {font-family:sans-serif; background:#1a1a1a; color:#fff; padding:20px;}
+            button {padding:10px 20px; margin:5px; cursor:pointer;}
+            table {border-collapse: collapse; margin-top: 20px;}
+            th, td {border:1px solid #fff; padding:5px 10px;}
+        </style>
+    </head>
+    <body>
+        <h1>Admin Panel</h1>
+        <form method="POST" action="/admin/generate">
+            <button type="submit">Generate PERM Key</button>
+        </form>
 
-    return render_template_string(ADMIN_HTML, key=new_key, keys=KEYS)
+        <h2>All Keys</h2>
+        <table>
+            <tr><th>Key</th><th>Permanent</th><th>Used By</th><th>Revoke</th></tr>
+            {% for k,v in keys.items() %}
+            <tr>
+                <td>{{k}}</td>
+                <td>{{v.perm}}</td>
+                <td>{{v.used_by}}</td>
+                <td><a href="/admin/revoke?token=1234t&key={{k}}">Revoke</a></td>
+            </tr>
+            {% endfor %}
+        </table>
+    </body>
+    </html>
+    """
+    return render_template_string(html, keys=keys)
 
-# ======================
-# HOME
-# ======================
-@app.route("/")
-def home():
-    return "Vertex Z Key Server Online"
+# Generate perm key
+@app.route("/admin/generate", methods=["POST"])
+def admin_generate():
+    token = request.args.get("token")
+    if token != "1234t":
+        return "Unauthorized", 401
 
-# ======================
-# RUN
-# ======================
-if __name__ == "__main__":
+    new_key = generate_key(perm=True)
+    return redirect("/admin?token=1234t")
+
+# Revoke key
+@app.route("/admin/revoke")
+def admin_revoke():
+    token = request.args.get("token")
+    if token != "1234t":
+        return "Unauthorized", 401
+
+    key = request.args.get("key")
+    if key:
+        revoke_key(key)
+    return redirect("/admin?token=1234t")
+
+# -----------------------
+# Run Flask
+# -----------------------
+def run_flask():
     app.run(host="0.0.0.0", port=5050)
 
-# ======================
-# HTML BELOW (EMBEDDED)
-# ======================
-
-GENERATE_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-<title>Your Key</title>
-<style>
-body {
-    background:#0e0e0e;
-    color:white;
-    font-family:Arial;
-    display:flex;
-    justify-content:center;
-    align-items:center;
-    height:100vh;
-}
-.box {
-    background:#151515;
-    padding:30px;
-    border-radius:14px;
-    text-align:center;
-    animation:pop .5s ease;
-    box-shadow:0 0 25px rgba(76,175,80,.2);
-}
-@keyframes pop {
-    from {transform:scale(.8); opacity:0}
-    to {transform:scale(1); opacity:1}
-}
-.key {
-    font-size:24px;
-    margin-top:15px;
-    color:#4caf50;
-    font-weight:bold;
-}
-</style>
-</head>
-<body>
-<div class="box">
-<h2>Your Key</h2>
-<div class="key">{{ key }}</div>
-<p>Paste this into the Roblox script</p>
-</div>
-</body>
-</html>
-"""
-
-ADMIN_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-<title>Admin Panel</title>
-<style>
-body {
-    background:#0e0e0e;
-    color:white;
-    font-family:Arial;
-}
-.container {
-    width:650px;
-    margin:40px auto;
-    background:#151515;
-    padding:25px;
-    border-radius:14px;
-}
-button {
-    background:#4caf50;
-    border:none;
-    padding:10px 15px;
-    font-weight:bold;
-    border-radius:8px;
-    cursor:pointer;
-}
-.key {
-    color:#4caf50;
-    margin:5px 0;
-}
-</style>
-</head>
-<body>
-<div class="container">
-<h2>Admin Dashboard</h2>
-
-<form method="POST">
-<button type="submit">Generate Permanent Key</button>
-</form>
-
-{% if key %}
-<p>New PERM key:</p>
-<div class="key">{{ key }}</div>
-{% endif %}
-
-<h3>All Keys</h3>
-{% for k,v in keys.items() %}
-<div class="key">{{ k }} {% if v.perm %}(PERM){% endif %}</div>
-{% endfor %}
-
-</div>
-</body>
-</html>
-"""
-
+# -----------------------
+# Main execution
+# -----------------------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5050)
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.start()
