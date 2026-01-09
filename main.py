@@ -1,143 +1,113 @@
+from flask import Flask, request, jsonify, render_template_string, redirect
 import threading
 import random
 import string
-from flask import Flask, request, render_template_string, redirect
+import time
 
 app = Flask(__name__)
 
-# -----------------------
-# Key system storage
-# -----------------------
-keys = {}  # format: key: {"perm": bool, "used_by": None or username}
-used_keys = {}  # key: username
+# -----------------------------
+# Key system database (in-memory)
+# -----------------------------
+keys_db = []  # stores dicts: {key, user, perm, used}
 
-# -----------------------
+# -----------------------------
 # Helper functions
-# -----------------------
-def generate_key(perm=False):
-    """Generates a VZ_ key"""
-    random_part = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
-    key = f"VZ_{random_part}"
-    keys[key] = {"perm": perm, "used_by": None}
-    return key
+# -----------------------------
+def generate_key(length=8, perm=False):
+    """Generate a key starting with VZ_"""
+    k = "VZ_" + "".join(random.choices(string.ascii_uppercase + string.digits, k=length))
+    keys_db.append({"key": k, "user": None, "perm": perm, "used": False})
+    return k
 
-def validate_key(input_key, username):
-    """Check if key is valid and lock to username"""
-    if input_key not in keys:
-        return False
-    if keys[input_key]["used_by"] is not None and keys[input_key]["used_by"] != username:
-        return False
-    keys[input_key]["used_by"] = username
-    return True
+def find_key(k):
+    for key in keys_db:
+        if key["key"] == k:
+            return key
+    return None
 
-def revoke_key(key):
-    if key in keys:
-        del keys[key]
+# -----------------------------
+# Admin dashboard HTML
+# -----------------------------
+DASHBOARD_HTML = """
+<!doctype html>
+<title>Vertex-Z Admin</title>
+<h1>Vertex-Z Key Dashboard</h1>
+<h2>Generate Keys</h2>
+<button onclick="fetch('/generate_key').then(r => r.json()).then(d => alert('Key: '+d.key))">Generate Key</button>
+<button onclick="fetch('/generate_perm_key_admin').then(r => r.json()).then(d => alert('Perm Key: '+d.key))">Generate Perm Key</button>
 
-# -----------------------
+<h2>Current Keys</h2>
+<ul>
+{% for k in keys %}
+    <li>{{k.key}} | Perm: {{k.perm}} | Used: {{k.used}} | Locked to: {{k.user}}
+        {% if not k.perm %}<button onclick="fetch('/revoke_key?key={{k.key}}').then(()=>location.reload())">Revoke</button>{% endif %}
+    </li>
+{% endfor %}
+</ul>
+"""
+
+# -----------------------------
 # Routes
-# -----------------------
-
-# Home page
+# -----------------------------
 @app.route("/")
 def home():
-    return render_template_string("""
-        <html>
-            <head><title>Vertex-Z Key System</title></head>
-            <body style="font-family:sans-serif;">
-                <h1>Welcome to Vertex-Z Key System</h1>
-                <p>Use <code>/validate?key=YOUR_KEY&user=USERNAME</code> to validate your key in Roblox.</p>
-                <p>Admin? Visit <a href="/admin?token=1234t">Admin Panel</a></p>
-            </body>
-        </html>
-    """)
+    return redirect("/admin")
 
-# Key validation route (Roblox)
-@app.route("/validate")
-def validate():
-    key = request.args.get("key")
-    username = request.args.get("user")
-    if not key or not username:
-        return "Missing key or username", 400
-
-    if validate_key(key, username):
-        return f"Key valid! Locked to {username}."
-    else:
-        return "Invalid or already used key!", 403
-
-# Admin panel
 @app.route("/admin")
 def admin():
-    token = request.args.get("token")
-    if token != "1234t":
-        return "Unauthorized", 401
+    return render_template_string(DASHBOARD_HTML, keys=keys_db)
 
-    # Admin dashboard page
-    html = """
-    <html>
-    <head>
-        <title>Admin Panel</title>
-        <style>
-            body {font-family:sans-serif; background:#1a1a1a; color:#fff; padding:20px;}
-            button {padding:10px 20px; margin:5px; cursor:pointer;}
-            table {border-collapse: collapse; margin-top: 20px;}
-            th, td {border:1px solid #fff; padding:5px 10px;}
-        </style>
-    </head>
-    <body>
-        <h1>Admin Panel</h1>
-        <form method="POST" action="/admin/generate">
-            <button type="submit">Generate PERM Key</button>
-        </form>
+# Generate a normal key (anyone hitting this directly is fine)
+@app.route("/generate_key")
+def generate_normal_key():
+    k = generate_key(perm=False)
+    return jsonify({"key": k})
 
-        <h2>All Keys</h2>
-        <table>
-            <tr><th>Key</th><th>Permanent</th><th>Used By</th><th>Revoke</th></tr>
-            {% for k,v in keys.items() %}
-            <tr>
-                <td>{{k}}</td>
-                <td>{{v.perm}}</td>
-                <td>{{v.used_by}}</td>
-                <td><a href="/admin/revoke?token=1234t&key={{k}}">Revoke</a></td>
-            </tr>
-            {% endfor %}
-        </table>
-    </body>
-    </html>
-    """
-    return render_template_string(html, keys=keys)
+# Generate perm key from admin panel (no token needed from button)
+@app.route("/generate_perm_key_admin")
+def generate_perm_key_admin():
+    k = generate_key(perm=True)
+    return jsonify({"key": k})
 
-# Generate perm key
-@app.route("/admin/generate", methods=["POST"])
-def admin_generate():
-    token = request.args.get("token")
-    if token != "1234t":
-        return "Unauthorized", 401
+# Revoke a key
+@app.route("/revoke_key")
+def revoke_key():
+    k = request.args.get("key")
+    key_obj = find_key(k)
+    if key_obj:
+        keys_db.remove(key_obj)
+    return jsonify({"status": "ok"})
 
-    new_key = generate_key(perm=True)
-    return redirect("/admin?token=1234t")
-
-# Revoke key
-@app.route("/admin/revoke")
-def admin_revoke():
-    token = request.args.get("token")
-    if token != "1234t":
-        return "Unauthorized", 401
-
+# LootLabs & Roblox validation
+@app.route("/validate")
+def validate():
+    username = request.args.get("username")
     key = request.args.get("key")
-    if key:
-        revoke_key(key)
-    return redirect("/admin?token=1234t")
+    key_obj = find_key(key)
+    if not key_obj:
+        return jsonify({"status": "invalid"}), 401
+    if key_obj["used"] and not key_obj["perm"]:
+        return jsonify({"status": "used"}), 403
+    # lock key to user if not already
+    if not key_obj["user"]:
+        key_obj["user"] = username
+    # mark used if not perm
+    if not key_obj["perm"]:
+        key_obj["used"] = True
+    return jsonify({"status": "ok", "key": key, "user": username})
 
-# -----------------------
-# Run Flask
-# -----------------------
+# -----------------------------
+# Start Flask in a thread
+# -----------------------------
 def run_flask():
     app.run(host="0.0.0.0", port=5050)
 
-# -----------------------
+# -----------------------------
 # Main execution
-# -----------------------
+# -----------------------------
 if __name__ == "__main__":
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.start()
+    # Roblox bot or executor logic would run here
+    print("Flask running on port 5050. Dashboard: /admin")
