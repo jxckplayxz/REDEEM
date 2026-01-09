@@ -1,135 +1,173 @@
-import os
-import json
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, render_template_string
+import random, string
 
 app = Flask(__name__)
 
-DATA_FILE = "keys.json"
-ADMIN_TOKEN = "12345"  # admin token changed
+ADMIN_TOKEN = "1234t"
 
-# -------------------------
-# Load / Save Keys
-# -------------------------
-def load_data():
-    if not os.path.exists(DATA_FILE):
-        return {"keys": {}, "banned_users": []}
-    with open(DATA_FILE, "r") as f:
-        return json.load(f)
+# key -> {"perm": bool}
+KEYS = {}
 
-def save_data(data):
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f, indent=4)
+# ======================
+# KEY GENERATION
+# ======================
+def generate_key(perm=False):
+    key = "VZ_" + "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
+    KEYS[key] = {"perm": perm}
+    return key
 
-data = load_data()
-
-# -------------------------
-# Utils
-# -------------------------
-def generate_key(prefix="VZ_", length=12):
-    import random, string
-    return prefix + ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
-
-# -------------------------
-# Dashboard
-# -------------------------
-@app.route("/")
-def dashboard():
-    return render_template_string("""
-    <h1>Vertex Z Key Dashboard</h1>
-    <p>Total Keys: {{ keys|length }}</p>
-
-    <h3>Create Permanent Key</h3>
-    <form action="/admin/create_perm" method="post">
-        <input name="token" placeholder="Admin token">
-        <button>Create</button>
-    </form>
-
-    <h3>Revoke Key</h3>
-    <form action="/admin/revoke" method="post">
-        <input name="token" placeholder="Admin token">
-        <input name="key" placeholder="Key">
-        <button>Revoke</button>
-    </form>
-
-    <h3>Keys</h3>
-    <ul>
-    {% for k,v in keys.items() %}
-        <li>{{ k }} | user={{ v["username"] }} | perm={{ v["permanent"] }}</li>
-    {% endfor %}
-    </ul>
-    """, keys=data["keys"])
-
-# -------------------------
-# Validate Key (ROBLOX)
-# -------------------------
-@app.route("/validate", methods=["POST"])
+# ======================
+# VALIDATE (ROBLOX)
+# ======================
+@app.route("/validate")
 def validate():
-    body = request.get_json()
-    key = body.get("key")
-    username = body.get("username")
+    key = request.args.get("key")
+    if key in KEYS:
+        return "VALID"
+    return "INVALID"
 
-    if username in data["banned_users"]:
-        return jsonify(success=False, message="User banned")
+# ======================
+# LOOTLABS GENERATE
+# ======================
+@app.route("/generate")
+def generate():
+    if request.args.get("from") != "lootlabs":
+        return "Invalid source"
 
-    if key not in data["keys"]:
-        return jsonify(success=False, message="Invalid key")
+    key = generate_key(perm=False)
+    return render_template_string(GENERATE_HTML, key=key)
 
-    info = data["keys"][key]
-
-    if info["username"] is None:
-        info["username"] = username
-        save_data(data)
-        return jsonify(success=True, message="Key locked to user")
-
-    if info["username"] != username:
-        return jsonify(success=False, message="Key used by another user")
-
-    return jsonify(success=True, message="Key valid")
-
-# -------------------------
-# Admin: Create Perm Key
-# -------------------------
-@app.route("/admin/create_perm", methods=["POST"])
-def create_perm():
-    token = request.form.get("token") or request.json.get("token")
+# ======================
+# ADMIN DASHBOARD
+# ======================
+@app.route("/admin", methods=["GET", "POST"])
+def admin():
+    token = request.args.get("token")
     if token != ADMIN_TOKEN:
-        return "Unauthorized", 401
+        return "Unauthorized"
 
-    key = generate_key()
-    data["keys"][key] = {
-        "username": None,
-        "permanent": True
-    }
-    save_data(data)
-    return jsonify(success=True, key=key)
+    new_key = None
+    if request.method == "POST":
+        new_key = generate_key(perm=True)
 
-# -------------------------
-# Admin: Revoke Key
-# -------------------------
-@app.route("/admin/revoke", methods=["POST"])
-def revoke():
-    token = request.form.get("token") or request.json.get("token")
-    key = request.form.get("key") or request.json.get("key")
+    return render_template_string(ADMIN_HTML, key=new_key, keys=KEYS)
 
-    if token != ADMIN_TOKEN:
-        return "Unauthorized", 401
+# ======================
+# HOME
+# ======================
+@app.route("/")
+def home():
+    return "Vertex Z Key Server Online"
 
-    if key in data["keys"]:
-        del data["keys"][key]
-        save_data(data)
-        return jsonify(success=True)
-
-    return jsonify(success=False)
-
-# -------------------------
-# Run Flask (PORT 5050)
-# -------------------------
-def run_flask():
-    port = 5050  # fixed port
-    app.run(host="0.0.0.0", port=port)
-
-# -------------------------
-# MAIN
-# -------------------------
+# ======================
+# RUN
+# ======================
 if __name__ == "__main__":
-    run_flask()
+    app.run(host="0.0.0.0", port=5050)
+
+# ======================
+# HTML BELOW (EMBEDDED)
+# ======================
+
+GENERATE_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+<title>Your Key</title>
+<style>
+body {
+    background:#0e0e0e;
+    color:white;
+    font-family:Arial;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    height:100vh;
+}
+.box {
+    background:#151515;
+    padding:30px;
+    border-radius:14px;
+    text-align:center;
+    animation:pop .5s ease;
+    box-shadow:0 0 25px rgba(76,175,80,.2);
+}
+@keyframes pop {
+    from {transform:scale(.8); opacity:0}
+    to {transform:scale(1); opacity:1}
+}
+.key {
+    font-size:24px;
+    margin-top:15px;
+    color:#4caf50;
+    font-weight:bold;
+}
+</style>
+</head>
+<body>
+<div class="box">
+<h2>Your Key</h2>
+<div class="key">{{ key }}</div>
+<p>Paste this into the Roblox script</p>
+</div>
+</body>
+</html>
+"""
+
+ADMIN_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+<title>Admin Panel</title>
+<style>
+body {
+    background:#0e0e0e;
+    color:white;
+    font-family:Arial;
+}
+.container {
+    width:650px;
+    margin:40px auto;
+    background:#151515;
+    padding:25px;
+    border-radius:14px;
+}
+button {
+    background:#4caf50;
+    border:none;
+    padding:10px 15px;
+    font-weight:bold;
+    border-radius:8px;
+    cursor:pointer;
+}
+.key {
+    color:#4caf50;
+    margin:5px 0;
+}
+</style>
+</head>
+<body>
+<div class="container">
+<h2>Admin Dashboard</h2>
+
+<form method="POST">
+<button type="submit">Generate Permanent Key</button>
+</form>
+
+{% if key %}
+<p>New PERM key:</p>
+<div class="key">{{ key }}</div>
+{% endif %}
+
+<h3>All Keys</h3>
+{% for k,v in keys.items() %}
+<div class="key">{{ k }} {% if v.perm %}(PERM){% endif %}</div>
+{% endfor %}
+
+</div>
+</body>
+</html>
+"""
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5050)
