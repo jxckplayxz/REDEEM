@@ -1,9 +1,9 @@
-from flask import Flask, render_template_string, request
+from flask import Flask, request, render_template_string
 from flask_socketio import SocketIO, join_room, emit
 import uuid
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "vc-secret"
+app.config["SECRET_KEY"] = "vc"
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 rooms = {}
@@ -12,50 +12,88 @@ HTML = """
 <!DOCTYPE html>
 <html>
 <head>
-<title>Web VC</title>
+<meta charset="UTF-8">
+<title>Web Voice Chat</title>
 <style>
-body { background:#0f0f14; color:white; font-family:Arial; }
-button, input { padding:10px; margin:5px; border:none; border-radius:6px; }
-button { background:#5865f2; color:white; cursor:pointer; }
-.card { background:#1c1c28; padding:15px; border-radius:8px; margin:10px; }
+body {
+    margin:0;
+    font-family: Arial, sans-serif;
+    background:#0b0d13;
+    color:white;
+}
+#app { display:flex; height:100vh; }
+#sidebar {
+    width:260px;
+    background:#111827;
+    padding:15px;
+}
+#main {
+    flex:1;
+    padding:20px;
+}
+input, button {
+    width:100%;
+    padding:10px;
+    margin-top:8px;
+    border-radius:6px;
+    border:none;
+}
+button {
+    background:#5865f2;
+    color:white;
+    cursor:pointer;
+}
+button:hover { opacity:.9; }
+.room {
+    background:#1f2937;
+    padding:10px;
+    border-radius:6px;
+    margin-top:8px;
+    cursor:pointer;
+}
+.hidden { display:none; }
+#mute { background:#ef4444; }
 </style>
 </head>
 <body>
 
-<h2>Create Server</h2>
-<input id="name" placeholder="Server name">
-<label><input type="checkbox" id="public"> Public</label>
-<button onclick="create()">Create</button>
+<div id="app">
+    <div id="sidebar">
+        <h3>Create VC</h3>
+        <input id="rname" placeholder="Room name">
+        <label><input type="checkbox" id="public"> Public</label>
+        <button onclick="createRoom()">Create</button>
 
-<h2>Public Servers</h2>
-<div id="servers"></div>
+        <h3 style="margin-top:20px">Public Rooms</h3>
+        <div id="rooms"></div>
+    </div>
 
-<h2 id="roomTitle"></h2>
-<button onclick="toggleMute()">Mute / Unmute</button>
+    <div id="main">
+        <h2 id="status">Not connected</h2>
+        <button id="mute" class="hidden" onclick="toggleMute()">Mute</button>
+    </div>
+</div>
 
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 <script>
 const socket = io();
-let pc;
-let stream;
-let muted = false;
-let currentRoom = null;
+let pc, stream, currentRoom, muted=false;
 
-async function create(){
-    const res = await fetch("/create", {
+async function createRoom(){
+    const res = await fetch("/create",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
-            name: name.value,
-            public: public.checked
+            name:rname.value,
+            public:public.checked
         })
     });
     const data = await res.json();
-    join(data.room_id, data.code);
+    joinRoom(data.id, data.code);
 }
 
-async function join(id, code=null){
-    const res = await fetch("/join", {
+async function joinRoom(id, code=null){
+    const res = await fetch("/join",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({room:id, code})
@@ -63,13 +101,18 @@ async function join(id, code=null){
     if(!res.ok){ alert("Join failed"); return; }
 
     currentRoom = id;
-    roomTitle.innerText = "Room: " + id;
-    startVC();
+    status.innerText = "Connected to room: " + id;
+    mute.classList.remove("hidden");
+
+    socket.emit("join", {room:id});
+    startVoice();
 }
 
-async function startVC(){
+async function startVoice(){
     stream = await navigator.mediaDevices.getUserMedia({audio:true});
-    pc = new RTCPeerConnection();
+    pc = new RTCPeerConnection({
+        iceServers:[{urls:"stun:stun.l.google.com:19302"}]
+    });
 
     stream.getTracks().forEach(t=>pc.addTrack(t,stream));
 
@@ -81,43 +124,45 @@ async function startVC(){
 
     pc.onicecandidate = e=>{
         if(e.candidate){
-            socket.emit("ice",{room:currentRoom,candidate:e.candidate});
+            socket.emit("ice",{room:currentRoom,c:e.candidate});
         }
     };
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    socket.emit("offer",{room:currentRoom,offer});
+    socket.emit("offer",{room:currentRoom,sdp:offer});
 }
 
 function toggleMute(){
     muted=!muted;
     stream.getAudioTracks()[0].enabled=!muted;
+    mute.innerText = muted ? "Unmute" : "Mute";
 }
 
 socket.on("offer",async d=>{
-    if(!pc) startVC();
-    await pc.setRemoteDescription(d.offer);
-    const ans=await pc.createAnswer();
+    if(!pc) await startVoice();
+    await pc.setRemoteDescription(d.sdp);
+    const ans = await pc.createAnswer();
     await pc.setLocalDescription(ans);
-    socket.emit("answer",{room:currentRoom,answer:ans});
+    socket.emit("answer",{room:currentRoom,sdp:ans});
 });
 
-socket.on("answer",d=>pc.setRemoteDescription(d.answer));
-socket.on("ice",d=>pc.addIceCandidate(d.candidate));
+socket.on("answer",d=>pc.setRemoteDescription(d.sdp));
+socket.on("ice",d=>pc.addIceCandidate(d.c));
 
-async function load(){
-    const res=await fetch("/rooms");
-    const data=await res.json();
-    servers.innerHTML="";
+async function loadRooms(){
+    const r = await fetch("/rooms");
+    const data = await r.json();
+    rooms.innerHTML="";
     Object.entries(data).forEach(([id,r])=>{
         const div=document.createElement("div");
-        div.className="card";
-        div.innerHTML=`<b>${r.name}</b><br><button onclick="join('${id}')">Join</button>`;
-        servers.appendChild(div);
+        div.className="room";
+        div.innerText=r.name;
+        div.onclick=()=>joinRoom(id);
+        rooms.appendChild(div);
     });
 }
-load();
+loadRooms();
 </script>
 </body>
 </html>
@@ -129,14 +174,14 @@ def index():
 
 @app.route("/create", methods=["POST"])
 def create():
-    data=request.json
+    d=request.json
     rid=str(uuid.uuid4())[:8]
     rooms[rid]={
-        "name":data["name"],
-        "public":data["public"],
-        "code":str(uuid.uuid4())[:6] if not data["public"] else None
+        "name":d["name"],
+        "public":d["public"],
+        "code":str(uuid.uuid4())[:6] if not d["public"] else None
     }
-    return {"room_id":rid,"code":rooms[rid]["code"]}
+    return {"id":rid,"code":rooms[rid]["code"]}
 
 @app.route("/rooms")
 def public_rooms():
@@ -146,14 +191,17 @@ def public_rooms():
 def join():
     d=request.json
     r=rooms.get(d["room"])
-    if not r: return {"error":"404"},404
+    if not r: return {},404
     if not r["public"] and d.get("code")!=r["code"]:
-        return {"error":"403"},403
+        return {},403
     return {"ok":True}
+
+@socketio.on("join")
+def on_join(d):
+    join_room(d["room"])
 
 @socketio.on("offer")
 def offer(d):
-    join_room(d["room"])
     emit("offer",d,room=d["room"],include_self=False)
 
 @socketio.on("answer")
@@ -164,4 +212,4 @@ def answer(d):
 def ice(d):
     emit("ice",d,room=d["room"],include_self=False)
 
-socketio.run(app, host="0.0.0.0", port=5008)
+socketio.run(app, host="0.0.0.0", port=5060)
