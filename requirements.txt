@@ -1,6 +1,9 @@
 flask==3.0.0
+flask
+flask-socketio
 gevent
 gevent-websocket
+gunicorn
 jinja2==3.1.2
 requests==2.32.5
 beautifulsoup4==4.12.3
