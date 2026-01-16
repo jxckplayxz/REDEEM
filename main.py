@@ -1,61 +1,193 @@
-# app.py (HTML EMBEDDED)
-from flask import Flask, request, jsonify, render_template_string
-import random, string, json, os
+from flask import Flask, request, jsonify, render_template_string, redirect
+import random, string, json, os, time
 
 app = Flask(__name__)
+
 KEY_FILE = "keys.json"
+STATS_FILE = "stats.json"
+ADMIN_PASSWORD = "vzadmin212"
+DAY = 86400
 
-if not os.path.exists(KEY_FILE):
-    with open(KEY_FILE, "w") as f:
-        json.dump({}, f)
+ALLOWED_REFERRERS = [
+    "lootlabs.gg",
+    "lootdest.org",
+    "lootlink.com"
+]
 
-def load_keys():
-    with open(KEY_FILE, "r") as f:
+RICKROLL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+# Initialize files if missing
+def init_file(path, default):
+    if not os.path.exists(path):
+        with open(path, "w") as f:
+            json.dump(default, f)
+
+init_file(KEY_FILE, {})
+init_file(STATS_FILE, {"getkey": 0, "verifications": 0, "perm_generated": 0})
+
+def load(path):
+    with open(path, "r") as f:
         return json.load(f)
 
-def save_keys(keys):
-    with open(KEY_FILE, "w") as f:
-        json.dump(keys, f)
+def save(path, data):
+    with open(path, "w") as f:
+        json.dump(data, f)
 
-def gen_key():
-    return "VZ-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=12))
+def gen_key(prefix):
+    return prefix + "-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=12))
 
-HTML = """
+def valid_referrer(ref):
+    if not ref:
+        return False
+    return any(x in ref for x in ALLOWED_REFERRERS)
+
+# ---------- HTML TEMPLATES ----------
+
+KEY_HTML = """
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="UTF-8">
-<title>Your Key</title>
+<title>Vertex Z Key</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-body{background:#0f0f0f;color:#fff;font-family:Arial;display:flex;align-items:center;justify-content:center;height:100vh}
-.box{background:#1b1b1b;padding:25px;border-radius:10px;text-align:center}
-.key{background:#000;padding:12px;margin-top:10px;font-size:18px;user-select:all}
+body{margin:0;padding:0;background:#0f0f0f;color:white;font-family:Arial, sans-serif;display:flex;align-items:center;justify-content:center;height:100vh}
+.box{background:#1b1b1b;padding:20px;border-radius:14px;text-align:center;width:90%;max-width:400px;box-shadow:0 0 15px #000}
+.key{background:#000;padding:12px;margin-top:12px;font-size:20px;user-select:all;border-radius:8px}
+h2{margin:0;font-size:24px}
+p{margin-top:8px;font-size:14px;color:#ccc}
 </style>
 </head>
 <body>
 <div class="box">
-<h2>Your Key</h2>
+<h2>Vertex Z Daily Key</h2>
 <div class="key">{{ key }}</div>
-<p>Paste this into the executor</p>
+<p>Expires in 24 hours</p>
 </div>
 </body>
 </html>
 """
 
+DASHBOARD_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+<title>Vertex Z Admin</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+body{margin:0;padding:20px;background:#0e0e0e;color:white;font-family:Arial, sans-serif}
+.box{background:#1c1c1c;padding:15px;border-radius:12px;margin-bottom:20px}
+h2,h3{margin:0 0 10px 0}
+input,button,select{width:100%;padding:10px;margin:6px 0;border:none;border-radius:8px;font-size:16px}
+button{background:#333;color:white;cursor:pointer}
+.stat{margin:6px 0}
+.key-list{max-height:200px;overflow-y:auto;margin-top:10px}
+.key-item{display:flex;justify-content:space-between;padding:6px;border-bottom:1px solid #333;align-items:center}
+.key-item span{word-break:break-all;font-size:14px}
+.key-item button{width:auto;padding:6px 10px;font-size:12px;background:#b33;color:white;border-radius:6px;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="box">
+<h2>Vertex Z Admin Dashboard</h2>
+<div class="stat">🔑 Daily keys generated: {{ stats.getkey }}</div>
+<div class="stat">✅ Verifications: {{ stats.verifications }}</div>
+<div class="stat">♾️ Permanent keys created: {{ stats.perm_generated }}</div>
+<form method="POST">
+<button name="gen" value="1">Generate Permanent Key</button>
+</form>
+{% if perm %}
+<p>New Permanent Key:</p>
+<b>{{ perm }}</b>
+{% endif %}
+</div>
+
+<div class="box">
+<h3>All Keys (Click Revoke to invalidate)</h3>
+<div class="key-list">
+{% for k, v in keys.items() %}
+<div class="key-item">
+<span>{{ k }} ({{ v.type }})</span>
+<form method="POST" style="margin:0">
+<input type="hidden" name="revoke" value="{{ k }}">
+<button>Revoke</button>
+</form>
+</div>
+{% endfor %}
+</div>
+</div>
+</body>
+</html>
+"""
+
+# ---------- ROUTES ----------
+
 @app.route("/getkey")
 def getkey():
-    keys = load_keys()
-    key = gen_key()
-    keys[key] = True
-    save_keys(keys)
-    return render_template_string(HTML, key=key)
+    ref = request.referrer
+    if not valid_referrer(ref):
+        return redirect(RICKROLL)
+
+    keys = load(KEY_FILE)
+    stats = load(STATS_FILE)
+
+    key = gen_key("DAY")
+    keys[key] = {"type": "daily", "created": int(time.time())}
+    stats["getkey"] += 1
+
+    save(KEY_FILE, keys)
+    save(STATS_FILE, stats)
+
+    return render_template_string(KEY_HTML, key=key)
 
 @app.route("/verify", methods=["POST"])
 def verify():
     data = request.json
     key = data.get("key")
-    keys = load_keys()
-    return jsonify({"valid": key in keys})
+    keys = load(KEY_FILE)
+    stats = load(STATS_FILE)
 
-if __name__ == "__main__":
+    stats["verifications"] += 1
+
+    if key not in keys:
+        save(STATS_FILE, stats)
+        return jsonify({"valid": False})
+
+    info = keys[key]
+    if info["type"] == "daily" and time.time() - info["created"] > DAY:
+        del keys[key]
+        save(KEY_FILE, keys)
+        save(STATS_FILE, stats)
+        return jsonify({"valid": False})
+
+    save(STATS_FILE, stats)
+    return jsonify({"valid": True})
+
+@app.route("/admin", methods=["GET","POST"])
+def admin():
+    pw = request.args.get("pw") or request.form.get("pw")
+    if pw != ADMIN_PASSWORD:
+        return "Unauthorized", 401
+
+    stats = load(STATS_FILE)
+    keys = load(KEY_FILE)
+    perm = None
+
+    # Generate permanent key
+    if request.method=="POST" and request.form.get("gen"):
+        perm = gen_key("PERM")
+        keys[perm] = {"type": "permanent", "created": int(time.time())}
+        stats["perm_generated"] += 1
+
+    # Revoke key
+    if request.method=="POST" and request.form.get("revoke"):
+        k = request.form.get("revoke")
+        if k in keys:
+            del keys[k]
+
+    save(KEY_FILE, keys)
+    save(STATS_FILE, stats)
+
+    return render_template_string(DASHBOARD_HTML, stats=stats, perm=perm, keys=keys)
+
+if __name__=="__main__":
     app.run(host="0.0.0.0", port=5000)
