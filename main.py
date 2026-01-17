@@ -50,18 +50,55 @@ KEY_HTML = """
 <title>Vertex Z Key</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-body{margin:0;padding:0;background:#0f0f0f;color:white;font-family:Arial, sans-serif;display:flex;align-items:center;justify-content:center;height:100vh}
-.box{background:#1b1b1b;padding:20px;border-radius:14px;text-align:center;width:90%;max-width:400px;box-shadow:0 0 15px #000}
-.key{background:#000;padding:12px;margin-top:12px;font-size:20px;user-select:all;border-radius:8px}
-h2{margin:0;font-size:24px}
-p{margin-top:8px;font-size:14px;color:#ccc}
+body {
+    margin:0; padding:0;
+    background: linear-gradient(135deg, #0f0f0f, #1a1a1a);
+    color:white; font-family: 'Segoe UI', Arial, sans-serif;
+    display:flex; align-items:center; justify-content:center; height:100vh;
+}
+.box {
+    background:#1e1e1e;
+    padding:25px 20px;
+    border-radius:18px;
+    text-align:center;
+    width:90%;
+    max-width:420px;
+    box-shadow:0 8px 25px rgba(0,0,0,0.6);
+    border: 1px solid #333;
+}
+.key {
+    background:#000;
+    padding:14px;
+    margin-top:15px;
+    font-size:20px;
+    user-select:all;
+    border-radius:10px;
+    border:1px solid #444;
+}
+h2 {
+    margin:0; font-size:26px; color:#ffd700;
+}
+p {
+    margin-top:10px; font-size:15px; color:#bbb;
+}
+button {
+    margin-top:15px; padding:10px 0; width:100%;
+    background:#444; color:white; font-size:16px;
+    border:none; border-radius:10px; cursor:pointer;
+    transition: all 0.2s;
+}
+button:hover {
+    background:#666;
+}
 </style>
 </head>
 <body>
 <div class="box">
-<h2>Vertex Z Daily Key</h2>
+<h2>Vertex Z Key 🔑</h2>
+<p>Here is your key! Save it somewhere safe.</p>
 <div class="key">{{ key }}</div>
 <p>Expires in 24 hours</p>
+<a href="https://lootlabs.gg" target="_blank"><button>Go Back to LootLabs</button></a>
 </div>
 </body>
 </html>
