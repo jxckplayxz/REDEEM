@@ -5,34 +5,75 @@ import uuid
 
 app = Flask(__name__)
 
-HTML = """<!DOCTYPE html>
+HTML = """
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Velocidown</title>
-<style>
-body{background:#0a0b10;color:white;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh}
-.container{background:#111;padding:30px;border-radius:15px;width:350px}
-input,select,button{width:100%;padding:12px;margin-top:10px;border-radius:10px;border:none}
-button{background:#4facfe;color:black;font-weight:bold;cursor:pointer}
-.error{color:#ff6b6b;margin-top:10px}
-</style>
+<script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body>
-<div class="container">
-<h2>Velocidown</h2>
-<form method="POST">
-<input name="url" placeholder="Paste link" required>
-<select name="quality">
+
+<body class="bg-[#0a0b10] text-white flex items-center justify-center min-h-screen overflow-hidden">
+
+<!-- Background blobs -->
+<div class="absolute w-72 h-72 bg-cyan-400/30 blur-3xl rounded-full -top-20 -left-20 animate-pulse"></div>
+<div class="absolute w-72 h-72 bg-blue-500/30 blur-3xl rounded-full bottom-0 right-0 animate-pulse"></div>
+
+<div class="w-[92%] max-w-md backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-6 shadow-2xl">
+
+<h1 class="text-3xl font-extrabold text-center bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+Velocidown
+</h1>
+
+<p class="text-center text-gray-400 text-sm mt-1 mb-5">
+Swift, high-quality media extraction
+</p>
+
+<form method="POST" onsubmit="showLoading()" class="space-y-4">
+
+<input name="url" required
+placeholder="Paste link here..."
+class="w-full p-3 rounded-xl bg-black/30 border border-white/10 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/30 outline-none text-sm">
+
+<select name="quality"
+class="w-full p-3 rounded-xl bg-black/30 border border-white/10 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/30 outline-none text-sm">
 <option value="video">Video (MP4)</option>
 <option value="audio">Audio (MP3)</option>
 </select>
-<button type="submit">Download</button>
+
+<button id="dl-btn"
+class="w-full py-3 rounded-xl font-bold text-black bg-gradient-to-r from-cyan-400 to-blue-500 hover:scale-[1.02] active:scale-[0.98] transition">
+Download
+</button>
+
 </form>
-{% if error %}<div class="error">{{error}}</div>{% endif %}
+
+<!-- Loading -->
+<div id="loading" class="hidden flex flex-col items-center mt-4">
+<div class="w-6 h-6 border-4 border-white/20 border-t-cyan-400 rounded-full animate-spin"></div>
+<p class="text-xs text-gray-400 mt-2">Processing…</p>
 </div>
+
+{% if error %}
+<div class="mt-4 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg p-2 text-center">
+{{error}}
+</div>
+{% endif %}
+
+</div>
+
+<script>
+function showLoading(){
+document.getElementById("dl-btn").style.display="none";
+document.getElementById("loading").style.display="flex";
+}
+</script>
+
 </body>
-</html>"""
+</html>
+"""
 
 DOWNLOAD_DIR = "/tmp"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
@@ -46,9 +87,7 @@ def download_media(url, quality):
         "noplaylist": True,
         "outtmpl": base + ".%(ext)s",
         "nocheckcertificate": True,
-        "http_headers": {
-            "User-Agent": "Mozilla/5.0"
-        }
+        "http_headers": {"User-Agent": "Mozilla/5.0"}
     }
 
     if quality == "audio":
@@ -70,7 +109,6 @@ def download_media(url, quality):
         info = ydl.extract_info(url, download=True)
         filename = ydl.prepare_filename(info)
 
-    # Fix for mp3 rename after ffmpeg
     if quality == "audio":
         filename = base + ".mp3"
 
