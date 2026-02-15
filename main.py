@@ -9,31 +9,83 @@ HTML = """
 <!DOCTYPE html>
 <html>
 <head>
-<title>Video Downloader</title>
+<title>Gemini Video Downloader</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-body{font-family:Arial;background:#0f2027;color:white;text-align:center;padding:30px}
-.container{max-width:420px;margin:auto;background:#111;padding:20px;border-radius:15px}
-input,select,button{width:100%;padding:12px;margin:10px 0;border:none;border-radius:8px}
-button{background:#00c6ff;color:black;font-weight:bold;cursor:pointer}
-button:hover{background:#00a2d4}
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
+body{
+    margin:0; padding:0;
+    font-family:'Inter',sans-serif;
+    background:linear-gradient(135deg,#0f2027,#203a43,#2c5364);
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    min-height:100vh;
+    color:#fff;
+}
+.card{
+    background: rgba(255,255,255,0.05);
+    backdrop-filter: blur(15px);
+    border-radius:20px;
+    padding:40px 30px;
+    max-width:400px;
+    width:90%;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.37);
+    text-align:center;
+}
+h2{
+    margin-bottom:20px;
+    font-weight:600;
+    font-size:1.8rem;
+}
+input, select{
+    width:100%;
+    padding:12px 15px;
+    margin:10px 0;
+    border:none;
+    border-radius:12px;
+    background: rgba(255,255,255,0.1);
+    color:#fff;
+    font-size:1rem;
+}
+input::placeholder{color:#ddd;}
+button{
+    width:100%;
+    padding:12px;
+    margin-top:15px;
+    border:none;
+    border-radius:12px;
+    background: linear-gradient(90deg,#00c6ff,#0072ff);
+    color:#000;
+    font-weight:600;
+    font-size:1rem;
+    cursor:pointer;
+    transition:0.3s;
+}
+button:hover{
+    background: linear-gradient(90deg,#00ffff,#005eff);
+}
+.error{
+    margin-top:15px;
+    color:#ff6b6b;
+    font-size:0.9rem;
+}
 </style>
 </head>
 <body>
-<div class="container">
-<h2>🎬 Video Downloader</h2>
+<div class="card">
+<h2>Gemini Video Downloader</h2>
 <form method="POST">
 <input name="url" placeholder="Paste TikTok or YouTube link" required>
-
 <select name="quality">
-<option value="best">Best Quality</option>
-<option value="1080">1080p</option>
-<option value="720">720p</option>
+<option value="best">Best (720p max)</option>
 <option value="audio">Audio Only</option>
 </select>
-
 <button type="submit">Download</button>
 </form>
+{% if error %}
+<div class="error">{{error}}</div>
+{% endif %}
 </div>
 </body>
 </html>
@@ -48,31 +100,47 @@ def download_video(url, quality, platform):
     filename = str(uuid.uuid4())
     base = f"/tmp/{filename}"
 
+    common_opts = {
+        'quiet': True,
+        'noplaylist': True,
+        'nocheckcertificate': True,
+        'ignoreerrors': True,
+        'geo_bypass': True,
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X)'
+        }
+    }
+
+    # AUTO RETRY FORMATS
     if quality == "audio":
         ydl_opts = {
+            **common_opts,
             'outtmpl': base + ".mp3",
-            'format': 'bestaudio/best',
-            'quiet': True
+            'format': 'bestaudio[ext=m4a]/bestaudio/best'
         }
         ext = ".mp3"
     else:
+        # Mobile-safe YouTube/TikTok format
         if platform == "tiktok":
-            fmt = "best"
+            fmt_list = ["best", "bestvideo[height<=720]+bestaudio/best"]
         else:
-            if quality == "1080":
-                fmt = "bestvideo[height<=1080]+bestaudio/best"
-            elif quality == "720":
-                fmt = "bestvideo[height<=720]+bestaudio/best"
-            else:
-                fmt = "bestvideo+bestaudio/best"
+            fmt_list = ["best[height<=720][ext=mp4]","best[ext=mp4]"]
 
-        ydl_opts = {
-            'outtmpl': base + ".mp4",
-            'format': fmt,
-            'merge_output_format': 'mp4',
-            'quiet': True
-        }
         ext = ".mp4"
+        last_err = None
+        for fmt in fmt_list:
+            ydl_opts = {
+                **common_opts,
+                'outtmpl': base + ext,
+                'format': fmt
+            }
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([url])
+                return base + ext
+            except Exception as e:
+                last_err = e
+        raise last_err
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
@@ -89,6 +157,9 @@ def index():
             platform = detect_platform(url)
             file_path = download_video(url, quality, platform)
 
+            if not os.path.exists(file_path):
+                return render_template_string(HTML, error="Download failed. Try a different link or shorter video.")
+
             response = send_file(file_path, as_attachment=True)
 
             @response.call_on_close
@@ -99,11 +170,10 @@ def index():
             return response
 
         except Exception as e:
-            return f"<h3>Error: {str(e)}</h3>"
+            return render_template_string(HTML, error=str(e))
 
-    return render_template_string(HTML)
+    return render_template_string(HTML, error=None)
 
 if __name__ == "__main__":
-    import os
-    port = int(os.environ.get("PORT", 10000))
+    port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
