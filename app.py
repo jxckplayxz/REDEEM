@@ -1,11 +1,10 @@
-from flask import Flask, request, send_file, render_template_string, jsonify
+from flask import Flask, request, send_file, render_template_string, jsonify, after_this_request
 import yt_dlp
 import os
 import uuid
 
 app = Flask(__name__)
 
-# ================= UI =================
 HTML = """
 <!DOCTYPE html>
 <html>
@@ -22,7 +21,6 @@ HTML = """
 <div class="mb-6">
 <input id="searchBox" placeholder="Search YouTube (ronaldo, edits, etc)"
 class="w-full p-3 rounded bg-gray-800 border border-gray-700">
-
 <button onclick="searchVideos()"
 class="mt-2 px-4 py-2 bg-cyan-500 rounded">Search</button>
 </div>
@@ -33,7 +31,6 @@ class="mt-2 px-4 py-2 bg-cyan-500 rounded">Search</button>
 
 <!-- DIRECT DOWNLOAD -->
 <form method="POST" action="/download" class="space-y-3">
-
 <input name="url" placeholder="Paste video URL..." required
 class="w-full p-3 rounded bg-gray-800 border border-gray-700">
 
@@ -52,11 +49,10 @@ class="w-full p-3 rounded bg-gray-800 border border-gray-700">
 </select>
 
 <button class="w-full py-3 bg-cyan-500 rounded font-bold">Download</button>
-
 </form>
 
 {% if msg %}
-<p class="mt-4 text-red-400">{{ msg }}</p>
+<p class="mt-4 text-red-400 break-words">{{ msg }}</p>
 {% endif %}
 
 <script>
@@ -81,6 +77,7 @@ container.innerHTML += `
 <option value="best">Best</option>
 <option value="720">720p</option>
 <option value="480">480p</option>
+<option value="360">360p</option>
 </select>
 
 <select name="type" class="w-full mt-2 p-2 bg-gray-800 rounded">
@@ -147,15 +144,16 @@ def download():
         if os.path.exists("cookies.txt"):
             ydl_opts["cookiefile"] = "cookies.txt"
 
-        # QUALITY LOGIC
+        # VIDEO
         if filetype == "video":
             if quality == "best":
                 ydl_opts["format"] = "bestvideo+bestaudio/best"
             else:
-                ydl_opts["format"] = f"bestvideo[height<={quality}]+bestaudio/best"
+                ydl_opts["format"] = f"bestvideo[height<={quality}]+bestaudio/best[height<={quality}]/best"
 
             ydl_opts["merge_output_format"] = "mp4"
 
+        # AUDIO
         else:
             ydl_opts["format"] = "bestaudio/best"
             ydl_opts["postprocessors"] = [{
@@ -169,6 +167,15 @@ def download():
 
         if filetype == "audio":
             file_path = filename + ".mp3"
+
+        @after_this_request
+        def cleanup(response):
+            try:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+            except Exception:
+                pass
+            return response
 
         return send_file(file_path, as_attachment=True)
 
