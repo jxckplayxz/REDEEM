@@ -1,4 +1,4 @@
-from flask import Flask, request, send_file, render_template_string
+from flask import Flask, request, send_file, render_template_string, after_this_request
 import yt_dlp
 import os
 import uuid
@@ -7,102 +7,95 @@ app = Flask(__name__)
 
 HTML = """
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="UTF-8">
 <title>VelociDown</title>
 <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-zinc-950 text-white min-h-screen flex items-center justify-center">
+<body class="bg-gray-900 text-white p-6">
 
-<div class="w-full max-w-2xl p-6">
-<h1 class="text-4xl font-bold mb-6 text-center">⚡ VelociDown</h1>
+<h1 class="text-3xl mb-4 font-bold">VelociDown</h1>
 
-<!-- DOWNLOAD FORM -->
-<form method="POST" action="/download" class="flex gap-2 mb-6">
-<input name="url" placeholder="Paste YouTube URL..." required
-class="flex-1 p-3 rounded bg-zinc-900 border border-zinc-700 outline-none">
-<button class="bg-blue-600 px-6 rounded hover:bg-blue-700">Download</button>
+<form method="POST" action="/download" class="space-y-3">
+<input name="url" placeholder="Paste video URL..." required
+class="w-full p-3 rounded bg-gray-800">
+
+<select name="type" class="w-full p-3 rounded bg-gray-800">
+<option value="video">Video (MP4)</option>
+<option value="audio">Audio (MP3)</option>
+</select>
+
+<button class="bg-blue-600 px-6 py-2 rounded hover:bg-blue-700">Download</button>
 </form>
 
-<!-- SEARCH FORM -->
-<form method="POST" action="/search" class="flex gap-2 mb-6">
-<input name="query" placeholder="Search videos..." required
-class="flex-1 p-3 rounded bg-zinc-900 border border-zinc-700 outline-none">
-<button class="bg-green-600 px-6 rounded hover:bg-green-700">Search</button>
-</form>
-
-{% if results %}
-<div class="space-y-4">
-{% for video in results %}
-<div class="bg-zinc-900 p-4 rounded flex justify-between items-center">
-<div>
-<p class="font-semibold">{{ video.title }}</p>
-<p class="text-sm text-zinc-400">{{ video.duration }}</p>
-</div>
-<a href="/download?url={{ video.url }}"
-class="bg-blue-600 px-4 py-2 rounded hover:bg-blue-700">DL</a>
-</div>
-{% endfor %}
-</div>
+{% if msg %}
+<p class="mt-4 text-red-400">{{ msg }}</p>
 {% endif %}
 
-</div>
 </body>
 </html>
 """
 
-# 🔎 SEARCH
-@app.route("/search", methods=["POST"])
-def search():
-    query = request.form.get("query")
-
-    ydl_opts = {
-        "quiet": True,
-        "skip_download": True,
-        "extract_flat": True,
-        "cookiefile": "cookies.txt",
-    }
-
-    results = []
-
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(f"ytsearch5:{query}", download=False)
-
-        for entry in info["entries"]:
-            results.append({
-                "title": entry.get("title"),
-                "url": entry.get("url"),
-                "duration": entry.get("duration_string", "N/A"),
-            })
-
-    return render_template_string(HTML, results=results)
-
-# ⬇️ DOWNLOAD
-@app.route("/download", methods=["GET", "POST"])
-def download():
-    url = request.values.get("url")
-
-    if not url:
-        return "No URL provided"
-
-    filename = f"{uuid.uuid4()}.mp4"
-
-    ydl_opts = {
-        "format": "bestvideo+bestaudio/best",
-        "outtmpl": filename,
-        "cookiefile": "cookies.txt",
-        "quiet": True,
-        "merge_output_format": "mp4",
-    }
-
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
-
-    return send_file(filename, as_attachment=True)
-    
-
-# 🏠 HOME
 @app.route("/")
 def home():
     return render_template_string(HTML)
+
+
+@app.route("/download", methods=["POST"])
+def download():
+    url = request.form.get("url")
+    filetype = request.form.get("type")
+
+    if not url:
+        return render_template_string(HTML, msg="No URL provided")
+
+    filename = str(uuid.uuid4())
+
+    try:
+        # base options
+        ydl_opts = {
+            "outtmpl": filename + ".%(ext)s",
+            "quiet": True,
+        }
+
+        # add cookies if available
+        if os.path.exists("cookies.txt"):
+            ydl_opts["cookiefile"] = "cookies.txt"
+
+        # audio mode
+        if filetype == "audio":
+            ydl_opts["format"] = "bestaudio/best"
+            ydl_opts["postprocessors"] = [{
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+            }]
+        else:
+            ydl_opts["format"] = "bestvideo+bestaudio/best"
+            ydl_opts["merge_output_format"] = "mp4"
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            file_path = ydl.prepare_filename(info)
+
+        # fix filename for audio conversion
+        if filetype == "audio":
+            file_path = filename + ".mp3"
+
+        # delete file after sending (Render disk safe)
+        @after_this_request
+        def cleanup(response):
+            try:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+            except Exception:
+                pass
+            return response
+
+        return send_file(file_path, as_attachment=True)
+
+    except Exception as e:
+        return render_template_string(HTML, msg=f"Error: {str(e)}")
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
