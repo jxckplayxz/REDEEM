@@ -1,202 +1,108 @@
-from flask import Flask, request, send_file, render_template_string, jsonify
+from flask import Flask, request, send_file, render_template_string
 import yt_dlp
 import os
 import uuid
 
 app = Flask(__name__)
 
-DOWNLOAD_DIR = "/tmp"
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-
 HTML = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FluxDL</title>
+<title>VelociDown</title>
 <script src="https://cdn.tailwindcss.com"></script>
 </head>
+<body class="bg-zinc-950 text-white min-h-screen flex items-center justify-center">
 
-<body class="bg-[#07090f] text-white min-h-screen overflow-y-auto">
+<div class="w-full max-w-2xl p-6">
+<h1 class="text-4xl font-bold mb-6 text-center">⚡ VelociDown</h1>
 
-<div class="max-w-xl mx-auto p-6">
+<!-- DOWNLOAD FORM -->
+<form method="POST" action="/download" class="flex gap-2 mb-6">
+<input name="url" placeholder="Paste YouTube URL..." required
+class="flex-1 p-3 rounded bg-zinc-900 border border-zinc-700 outline-none">
+<button class="bg-blue-600 px-6 rounded hover:bg-blue-700">Download</button>
+</form>
 
-<h1 class="text-4xl font-extrabold text-center bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-FluxDL
-</h1>
+<!-- SEARCH FORM -->
+<form method="POST" action="/search" class="flex gap-2 mb-6">
+<input name="query" placeholder="Search videos..." required
+class="flex-1 p-3 rounded bg-zinc-900 border border-zinc-700 outline-none">
+<button class="bg-green-600 px-6 rounded hover:bg-green-700">Search</button>
+</form>
 
-<p class="text-center text-gray-400 text-sm mt-1 mb-6">Fast media search & downloader</p>
-
-<!-- SEARCH -->
-<div class="flex gap-2">
-<input id="searchInput" placeholder="Search videos..."
-class="w-full p-3 rounded-xl bg-black/30 border border-white/10 focus:border-cyan-400 outline-none">
-<button onclick="searchVideos()" class="px-4 bg-gradient-to-r from-cyan-400 to-blue-500 text-black rounded-xl font-bold">🔍</button>
+{% if results %}
+<div class="space-y-4">
+{% for video in results %}
+<div class="bg-zinc-900 p-4 rounded flex justify-between items-center">
+<div>
+<p class="font-semibold">{{ video.title }}</p>
+<p class="text-sm text-zinc-400">{{ video.duration }}</p>
 </div>
-
-<div id="results" class="mt-6 space-y-6"></div>
-
+<a href="/download?url={{ video.url }}"
+class="bg-blue-600 px-4 py-2 rounded hover:bg-blue-700">DL</a>
 </div>
-
-<script>
-async function searchVideos(){
-let q = document.getElementById("searchInput").value
-if(!q) return
-
-let res = await fetch("/search?q="+encodeURIComponent(q))
-let data = await res.json()
-
-let results = document.getElementById("results")
-results.innerHTML=""
-
-if(data.length === 0){
-results.innerHTML="<p class='text-gray-400 text-sm'>No results</p>"
-return
-}
-
-data.forEach(v=>{
-results.innerHTML += `
-<div class="bg-white/5 p-3 rounded-xl border border-white/10">
-
-<img src="${v.thumb}" class="rounded-lg mb-2">
-
-<p class="text-sm font-bold">${v.title}</p>
-
-<video controls class="w-full mt-2 rounded-lg">
-<source src="${v.preview}">
-</video>
-
-<div class="grid grid-cols-2 gap-2 mt-3">
-
-<button onclick="download('${v.url}','360')" class="bg-cyan-400 text-black py-2 rounded-lg text-sm">360p</button>
-<button onclick="download('${v.url}','720')" class="bg-cyan-400 text-black py-2 rounded-lg text-sm">720p</button>
-<button onclick="download('${v.url}','1080')" class="bg-cyan-400 text-black py-2 rounded-lg text-sm">1080p</button>
-<button onclick="download('${v.url}','mp3')" class="bg-purple-400 text-black py-2 rounded-lg text-sm">MP3</button>
+{% endfor %}
+</div>
+{% endif %}
 
 </div>
-
-</div>`
-})
-}
-
-function download(url, quality){
-let form = document.createElement("form")
-form.method="POST"
-form.action="/download"
-form.innerHTML=`
-<input name="url" value="${url}">
-<input name="quality" value="${quality}">
-`
-document.body.appendChild(form)
-form.submit()
-}
-</script>
-
 </body>
 </html>
 """
 
-def base_opts():
-    opts = {
+# 🔎 SEARCH
+@app.route("/search", methods=["POST"])
+def search():
+    query = request.form.get("query")
+
+    ydl_opts = {
         "quiet": True,
-        "noplaylist": True,
-        "nocheckcertificate": True,
-        "http_headers": {"User-Agent": "Mozilla/5.0"}
+        "skip_download": True,
+        "extract_flat": True,
+        "cookiefile": "cookies.txt",
     }
 
-    if os.path.exists("cookies.txt"):
-        opts["cookiefile"] = "cookies.txt"
-
-    return opts
-
-@app.route("/search")
-def search():
-    q = request.args.get("q")
-    if not q:
-        return jsonify([])
-
-    try:
-        ydl_opts = base_opts()
-        ydl_opts.update({"skip_download": True})
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch8:{q}", download=False)
-
-        results = []
-        for v in info.get("entries", []):
-            results.append({
-                "title": v.get("title"),
-                "url": v.get("webpage_url"),
-                "thumb": v.get("thumbnail"),
-                "preview": v.get("url")
-            })
-
-        return jsonify(results)
-
-    except Exception as e:
-        print(e)
-        return jsonify([])
-
-def download_media(url, quality):
-    uid = str(uuid.uuid4())
-    base = os.path.join(DOWNLOAD_DIR, uid)
-
-    ydl_opts = base_opts()
-    ydl_opts["outtmpl"] = base + ".%(ext)s"
-
-    if quality == "mp3":
-        ydl_opts.update({
-            "format": "bestaudio/best",
-            "postprocessors": [{
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192",
-            }]
-        })
-    else:
-        height = quality
-        ydl_opts.update({
-            "format": f"bestvideo[height<={height}]+bestaudio/best",
-            "merge_output_format": "mp4"
-        })
+    results = []
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        file = ydl.prepare_filename(info)
+        info = ydl.extract_info(f"ytsearch5:{query}", download=False)
 
-    if quality == "mp3":
-        file = base + ".mp3"
+        for entry in info["entries"]:
+            results.append({
+                "title": entry.get("title"),
+                "url": entry.get("url"),
+                "duration": entry.get("duration_string", "N/A"),
+            })
 
-    return file
+    return render_template_string(HTML, results=results)
 
-@app.route("/download", methods=["POST"])
+# ⬇️ DOWNLOAD
+@app.route("/download", methods=["GET", "POST"])
 def download():
-    url = request.form.get("url")
-    quality = request.form.get("quality")
+    url = request.values.get("url")
 
-    try:
-        file_path = download_media(url, quality)
+    if not url:
+        return "No URL provided"
 
-        if not os.path.exists(file_path):
-            return "Download failed"
+    filename = f"{uuid.uuid4()}.mp4"
 
-        response = send_file(file_path, as_attachment=True)
+    ydl_opts = {
+        "format": "bestvideo+bestaudio/best",
+        "outtmpl": filename,
+        "cookiefile": "cookies.txt",
+        "quiet": True,
+        "merge_output_format": "mp4",
+    }
 
-        @response.call_on_close
-        def cleanup():
-            if os.path.exists(file_path):
-                os.remove(file_path)
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
 
-        return response
+    return send_file(filename, as_attachment=True)
+    
 
-    except Exception as e:
-        print(e)
-        return "Download error"
-
+# 🏠 HOME
 @app.route("/")
-def index():
+def home():
     return render_template_string(HTML)
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
