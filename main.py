@@ -14,21 +14,25 @@ HTML = """
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Velocidown</title>
+<title>FluxDL</title>
 <script src="https://cdn.tailwindcss.com"></script>
 </head>
 
-<body class="bg-[#0a0b10] text-white min-h-screen overflow-y-auto">
+<body class="bg-[#07090f] text-white min-h-screen overflow-y-auto">
 
 <div class="max-w-xl mx-auto p-6">
 
-<h1 class="text-3xl font-extrabold text-center text-cyan-400">Velocidown</h1>
+<h1 class="text-4xl font-extrabold text-center bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+FluxDL
+</h1>
+
+<p class="text-center text-gray-400 text-sm mt-1 mb-6">Fast media search & downloader</p>
 
 <!-- SEARCH -->
-<div class="mt-6 flex gap-2">
+<div class="flex gap-2">
 <input id="searchInput" placeholder="Search videos..."
-class="w-full p-3 rounded-xl bg-black/30 border border-white/10">
-<button onclick="searchVideos()" class="px-4 bg-cyan-400 text-black rounded-xl">🔍</button>
+class="w-full p-3 rounded-xl bg-black/30 border border-white/10 focus:border-cyan-400 outline-none">
+<button onclick="searchVideos()" class="px-4 bg-gradient-to-r from-cyan-400 to-blue-500 text-black rounded-xl font-bold">🔍</button>
 </div>
 
 <div id="results" class="mt-6 space-y-6"></div>
@@ -53,7 +57,7 @@ return
 
 data.forEach(v=>{
 results.innerHTML += `
-<div class="bg-white/5 p-3 rounded-xl border border-white/10 animate-fade-in">
+<div class="bg-white/5 p-3 rounded-xl border border-white/10">
 
 <img src="${v.thumb}" class="rounded-lg mb-2">
 
@@ -125,7 +129,7 @@ def search():
                 "title": v.get("title"),
                 "url": v.get("webpage_url"),
                 "thumb": v.get("thumbnail"),
-                "preview": v.get("url")  # preview stream
+                "preview": v.get("url")
             })
 
         return jsonify(results)
