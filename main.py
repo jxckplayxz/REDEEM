@@ -20,82 +20,70 @@ HTML = """
 
 <body class="bg-[#0a0b10] text-white min-h-screen overflow-y-auto">
 
-<div class="absolute w-72 h-72 bg-cyan-400/30 blur-3xl rounded-full -top-20 -left-20 animate-pulse"></div>
-<div class="absolute w-72 h-72 bg-blue-500/30 blur-3xl rounded-full bottom-0 right-0 animate-pulse"></div>
+<div class="max-w-xl mx-auto p-6">
 
-<div class="relative max-w-xl mx-auto p-6">
-
-<h1 class="text-3xl font-extrabold text-center bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-Velocidown
-</h1>
+<h1 class="text-3xl font-extrabold text-center text-cyan-400">Velocidown</h1>
 
 <!-- SEARCH -->
 <div class="mt-6 flex gap-2">
-<input id="searchInput" placeholder="Search videos (e.g. ronaldo clips)"
+<input id="searchInput" placeholder="Search videos..."
 class="w-full p-3 rounded-xl bg-black/30 border border-white/10">
 <button onclick="searchVideos()" class="px-4 bg-cyan-400 text-black rounded-xl">🔍</button>
 </div>
 
-<div id="results" class="mt-6 space-y-4"></div>
-
-<!-- DOWNLOAD FORM -->
-<form method="POST" class="space-y-4 mt-6">
-
-<input name="url" required placeholder="Paste video link..."
-class="w-full p-3 rounded-xl bg-black/30 border border-white/10">
-
-<select name="quality"
-class="w-full p-3 rounded-xl bg-black/30 border border-white/10">
-<option value="video">Video (MP4)</option>
-<option value="audio">Audio (MP3)</option>
-</select>
-
-<button class="w-full py-3 rounded-xl font-bold text-black bg-gradient-to-r from-cyan-400 to-blue-500">
-Download
-</button>
-
-</form>
-
-{% if preview %}
-<div class="mt-6">
-<video controls class="rounded-xl w-full">
-<source src="{{preview}}">
-</video>
-</div>
-{% endif %}
-
-{% if error %}
-<div class="mt-4 text-red-400">{{error}}</div>
-{% endif %}
+<div id="results" class="mt-6 space-y-6"></div>
 
 </div>
 
 <script>
 async function searchVideos(){
 let q = document.getElementById("searchInput").value
+if(!q) return
+
 let res = await fetch("/search?q="+encodeURIComponent(q))
 let data = await res.json()
 
 let results = document.getElementById("results")
 results.innerHTML=""
 
+if(data.length === 0){
+results.innerHTML="<p class='text-gray-400 text-sm'>No results</p>"
+return
+}
+
 data.forEach(v=>{
 results.innerHTML += `
-<div class="bg-white/5 p-3 rounded-xl border border-white/10">
+<div class="bg-white/5 p-3 rounded-xl border border-white/10 animate-fade-in">
+
 <img src="${v.thumb}" class="rounded-lg mb-2">
+
 <p class="text-sm font-bold">${v.title}</p>
-<button onclick="download('${v.url}')" class="mt-2 px-3 py-2 bg-cyan-400 text-black rounded-lg">
-Download
-</button>
+
+<video controls class="w-full mt-2 rounded-lg">
+<source src="${v.preview}">
+</video>
+
+<div class="grid grid-cols-2 gap-2 mt-3">
+
+<button onclick="download('${v.url}','360')" class="bg-cyan-400 text-black py-2 rounded-lg text-sm">360p</button>
+<button onclick="download('${v.url}','720')" class="bg-cyan-400 text-black py-2 rounded-lg text-sm">720p</button>
+<button onclick="download('${v.url}','1080')" class="bg-cyan-400 text-black py-2 rounded-lg text-sm">1080p</button>
+<button onclick="download('${v.url}','mp3')" class="bg-purple-400 text-black py-2 rounded-lg text-sm">MP3</button>
+
+</div>
+
 </div>`
 })
 }
 
-function download(url){
+function download(url, quality){
 let form = document.createElement("form")
 form.method="POST"
-form.innerHTML=`<input name="url" value="${url}">
-<input name="quality" value="video">`
+form.action="/download"
+form.innerHTML=`
+<input name="url" value="${url}">
+<input name="quality" value="${quality}">
+`
 document.body.appendChild(form)
 form.submit()
 }
@@ -105,23 +93,55 @@ form.submit()
 </html>
 """
 
-def get_opts():
-    return {
+def base_opts():
+    opts = {
         "quiet": True,
         "noplaylist": True,
         "nocheckcertificate": True,
-        "http_headers": {"User-Agent": "Mozilla/5.0"},
-        "cookiefile": "cookies.txt" if os.path.exists("cookies.txt") else None
+        "http_headers": {"User-Agent": "Mozilla/5.0"}
     }
+
+    if os.path.exists("cookies.txt"):
+        opts["cookiefile"] = "cookies.txt"
+
+    return opts
+
+@app.route("/search")
+def search():
+    q = request.args.get("q")
+    if not q:
+        return jsonify([])
+
+    try:
+        ydl_opts = base_opts()
+        ydl_opts.update({"skip_download": True})
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"ytsearch8:{q}", download=False)
+
+        results = []
+        for v in info.get("entries", []):
+            results.append({
+                "title": v.get("title"),
+                "url": v.get("webpage_url"),
+                "thumb": v.get("thumbnail"),
+                "preview": v.get("url")  # preview stream
+            })
+
+        return jsonify(results)
+
+    except Exception as e:
+        print(e)
+        return jsonify([])
 
 def download_media(url, quality):
     uid = str(uuid.uuid4())
     base = os.path.join(DOWNLOAD_DIR, uid)
 
-    ydl_opts = get_opts()
+    ydl_opts = base_opts()
     ydl_opts["outtmpl"] = base + ".%(ext)s"
 
-    if quality == "audio":
+    if quality == "mp3":
         ydl_opts.update({
             "format": "bestaudio/best",
             "postprocessors": [{
@@ -131,8 +151,9 @@ def download_media(url, quality):
             }]
         })
     else:
+        height = quality
         ydl_opts.update({
-            "format": "bestvideo+bestaudio/best",
+            "format": f"bestvideo[height<={height}]+bestaudio/best",
             "merge_output_format": "mp4"
         })
 
@@ -140,57 +161,38 @@ def download_media(url, quality):
         info = ydl.extract_info(url, download=True)
         file = ydl.prepare_filename(info)
 
-    if quality == "audio":
+    if quality == "mp3":
         file = base + ".mp3"
 
     return file
 
-@app.route("/search")
-def search():
-    q = request.args.get("q")
+@app.route("/download", methods=["POST"])
+def download():
+    url = request.form.get("url")
+    quality = request.form.get("quality")
 
-    ydl_opts = get_opts()
-    ydl_opts.update({"skip_download": True})
+    try:
+        file_path = download_media(url, quality)
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(f"ytsearch10:{q}", download=False)
+        if not os.path.exists(file_path):
+            return "Download failed"
 
-    results = []
-    for v in info["entries"]:
-        results.append({
-            "title": v["title"],
-            "url": v["webpage_url"],
-            "thumb": v.get("thumbnail")
-        })
+        response = send_file(file_path, as_attachment=True)
 
-    return jsonify(results)
+        @response.call_on_close
+        def cleanup():
+            if os.path.exists(file_path):
+                os.remove(file_path)
 
-@app.route("/", methods=["GET","POST"])
+        return response
+
+    except Exception as e:
+        print(e)
+        return "Download error"
+
+@app.route("/")
 def index():
-    if request.method == "POST":
-        url = request.form.get("url")
-        quality = request.form.get("quality")
-
-        try:
-            file_path = download_media(url, quality)
-
-            if not os.path.exists(file_path):
-                return render_template_string(HTML, error="Download failed.", preview=None)
-
-            response = send_file(file_path, as_attachment=True)
-
-            @response.call_on_close
-            def cleanup():
-                if os.path.exists(file_path):
-                    os.remove(file_path)
-
-            return response
-
-        except Exception as e:
-            print(e)
-            return render_template_string(HTML, error=str(e), preview=None)
-
-    return render_template_string(HTML, error=None, preview=None)
+    return render_template_string(HTML)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
