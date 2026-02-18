@@ -6,9 +6,10 @@ import uuid
 app = Flask(__name__)
 
 DOWNLOAD_FOLDER = "downloads"
-os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
+if not os.path.exists(DOWNLOAD_FOLDER):
+    os.makedirs(DOWNLOAD_FOLDER)
 
-# THE UPDATED UI (Connected to Backend)
+# THE UI CODE
 HTML = """
 <!DOCTYPE html>
 <html lang="en">
@@ -38,7 +39,6 @@ HTML = """
             min-height: 100vh; margin: 0;
         }
 
-        /* Your Notification System */
         #notification {
             position: fixed; top: -100px; left: 50%; transform: translateX(-50%);
             background: #1f2937; color: white; padding: 16px 24px;
@@ -63,7 +63,6 @@ HTML = """
         .header i { font-size: 48px; color: var(--primary); margin-bottom: 12px; }
         h1 { margin: 0; font-weight: 800; font-size: 1.8rem; letter-spacing: -0.04em; }
 
-        /* Smooth Expanding Quality Card */
         #previewCard {
             max-height: 0; opacity: 0; visibility: hidden;
             background: #f3f4f6; border-radius: 20px;
@@ -79,7 +78,6 @@ HTML = """
         .q-btn { flex: 1; padding: 8px; font-size: 12px; font-weight: 700; border-radius: 9px; border: none; color: #6b7280; background: transparent; cursor: pointer; transition: 0.2s; }
         .q-btn.active { background: white; color: black; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
 
-        /* Input Group */
         .input-group { position: relative; margin-bottom: 16px; }
         input {
             width: 100%; background: white;
@@ -94,7 +92,6 @@ HTML = """
             color: #6b7280; cursor: pointer; font-size: 13px; font-weight: 700;
         }
 
-        /* Download Button */
         button.dl-btn {
             width: 100%; height: 64px; background: var(--primary); color: white;
             border: none; border-radius: 18px; font-weight: 700; font-size: 16px;
@@ -195,9 +192,11 @@ HTML = """
     }
 
     async function doPaste() {
-        const text = await navigator.clipboard.readText();
-        input.value = text;
-        handleInput();
+        try {
+            const text = await navigator.clipboard.readText();
+            input.value = text;
+            handleInput();
+        } catch(e) { notify("Clipboard access denied"); }
     }
 
     async function startDownload() {
@@ -227,12 +226,14 @@ HTML = """
             const blob = await res.blob();
             const a = document.createElement("a");
             a.href = URL.createObjectURL(blob);
-            a.download = "velocidown_" + selectedQuality + ".mp4";
+            
+            const ext = selectedQuality === 'MP3' ? 'mp3' : 'mp4';
+            a.download = `velocidown_${Date.now()}.${ext}`;
             a.click();
 
             btnTxt.innerHTML = `Success! <i class="fa-solid fa-check"></i>`;
         } catch (e) {
-            notify("Download failed. Try again.");
+            notify("Download failed. Check your connection.");
             btnTxt.innerHTML = "Download";
         } finally {
             setTimeout(() => {
@@ -257,13 +258,11 @@ def meta():
     data = request.get_json()
     url = data.get("url")
     try:
-        # Extract metadata without downloading
         with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
             info = ydl.extract_info(url, download=False)
         return jsonify({
             "title": info.get("title", "TikTok Video"),
             "thumbnail": info.get("thumbnail", ""),
-            "duration": info.get("duration")
         })
     except Exception as e:
         return jsonify({"error": str(e)})
@@ -275,19 +274,29 @@ def download():
     file_id = str(uuid.uuid4())
     output_path = os.path.join(DOWNLOAD_FOLDER, file_id)
 
-    # Simple logic for formats
     if quality == "MP3":
-        ydl_opts = {"format": "bestaudio/best", "outtmpl": output_path + ".%(ext)s"}
+        ydl_opts = {
+            "format": "bestaudio/best",
+            "outtmpl": output_path,
+            "postprocessors": [{
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192",
+            }],
+        }
     elif quality == "SD":
-        ydl_opts = {"format": "worst[ext=mp4]/worst", "outtmpl": output_path + ".%(ext)s"}
+        ydl_opts = {"format": "worst[ext=mp4]/worst", "outtmpl": output_path + ".mp4"}
     else:
-        # Best video without watermark (yt-dlp usually handles this for TikTok)
-        ydl_opts = {"format": "best[ext=mp4]/best", "outtmpl": output_path + ".%(ext)s"}
+        ydl_opts = {"format": "best[ext=mp4]/best", "outtmpl": output_path + ".mp4"}
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info)
+            # Adjust filename for MP3 post-processing
+            if quality == "MP3":
+                filename = os.path.splitext(filename)[0] + ".mp3"
+
         return send_file(filename, as_attachment=True)
     except Exception as e:
         return f"Error: {str(e)}", 500
