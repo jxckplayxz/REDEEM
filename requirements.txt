@@ -1,4 +1,3 @@
-Flask
-yt-dlp
-ffmpeg-python
-gunicorn
+Flask==3.1.3
+gunicorn==25.1.0
+requests==2.32.3
