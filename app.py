@@ -1,39 +1,50 @@
-from flask import Flask, request, send_file, render_template_string
-import yt_dlp
+import json
 import os
-import uuid
+from flask import Flask, render_template, request, redirect, url_for
 
 app = Flask(__name__)
+DATA_FILE = 'data.json'
 
-DOWNLOAD_FOLDER = "downloads"
-os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
+def load_data():
+    if not os.path.exists(DATA_FILE):
+        return {"sections": []}
+    with open(DATA_FILE, 'r') as f:
+        return json.load(f)
 
-HTML = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TikTok Downloader</title>
-<style>
-body {
-  margin:0;
-  font-family: system-ui;
-  background:#0f0f10;
-  color:white;
-  display:flex;
-  justify-content:center;
-  align-items:center;
-  min-height:100vh;
-}
+def save_data(data):
+    with open(DATA_FILE, 'w') as f:
+        json.dump(data, f, indent=4)
 
-.card {
-  width:95%;
-  max-width:420px;
-  background:#18181b;
-  border-radius:20px;
-  padding:20px;
-  box-shadow:0 0 25px rgba(0,0,0,0.5);
-}
+@app.route('/')
+def index():
+    data = load_data()
+    return render_template('index.html', sections=data['sections'])
+
+@app.route('/admin', methods=['GET', 'POST'])
+def admin():
+    data = load_data()
+    if request.method == 'POST':
+        section_name = request.form.get('section_name')
+        match_data = {
+            "title": request.form.get('title'),
+            "url": request.form.get('url'),
+            "thumb": request.form.get('thumb') or "https://via.placeholder.com/400x225/111827/FFFFFF?text=No+Image"
+        }
+
+        # Find section or create it
+        section = next((s for s in data['sections'] if s['name'] == section_name), None)
+        if section:
+            section['matches'].append(match_data)
+        else:
+            data['sections'].append({"name": section_name, "matches": [match_data]})
+        
+        save_data(data)
+        return redirect(url_for('admin'))
+    
+    return render_template('admin.html', sections=data['sections'])
+
+if __name__ == '__main__':
+    app.run(debug=True, port=5000)
 
 h1 {
   font-size:22px;
