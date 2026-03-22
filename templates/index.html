@@ -3,37 +3,57 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Real-Time Private Chat by Nickname</title>
-    <!-- Load Tailwind CSS -->
+    <title>Live Sports Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Configure Tailwind for Inter font -->
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    fontFamily: {
-                        sans: ['Inter', 'sans-serif'],
-                    },
-                    colors: {
-                        'primary-blue': '#4c51bf',
-                        'secondary-gray': '#f3f4f6',
-                        'chat-green': '#10b981', /* Emerald for DM */
-                        'chat-yellow': '#f59e0b', /* Amber for Global */
-                    }
-                }
-            }
-        }
-    </script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css" rel="stylesheet">
     <style>
-        /* Apply smooth scrolling and Inter font globally */
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f7fafc;
-        }
-        /* Custom scrollbar for the chat history container */
-        #chat-history::-webkit-scrollbar {
-            width: 8px;
-        }
+        body { background-color: #050505; color: white; font-family: 'Inter', sans-serif; }
+        .glass { background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
+        .match-card:hover .play-btn { opacity: 1; transform: scale(1); }
+    </style>
+</head>
+<body class="pb-20">
+    <nav class="sticky top-0 z-50 glass px-6 py-4 flex justify-between items-center mb-10">
+        <h1 class="text-2xl font-black tracking-tighter uppercase text-yellow-500">LALIGA <span class="text-white">LIVE</span></h1>
+        <a href="/admin" class="text-sm bg-white/10 hover:bg-white/20 px-4 py-2 rounded-full transition">Admin Panel</a>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-6">
+        {% for section in sections %}
+        <section class="mb-12 animate__animated animate__fadeInUp">
+            <div class="flex items-center gap-4 mb-6">
+                <h2 class="text-xl font-bold uppercase tracking-widest border-l-4 border-yellow-500 pl-4">{{ section.name }}</h2>
+                <div class="h-[1px] flex-1 bg-white/10"></div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {% for match in section.matches %}
+                <div class="match-card group relative bg-gray-900 rounded-2xl overflow-hidden cursor-pointer transition-all duration-500 hover:-translate-y-2 hover:shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
+                    <div class="relative aspect-video overflow-hidden">
+                        <img src="{{ match.thumb }}" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110">
+                        <div class="absolute inset-0 bg-black/40 group-hover:bg-black/20 transition-colors"></div>
+                        
+                        <div class="play-btn opacity-0 scale-75 absolute inset-0 flex items-center justify-center transition-all duration-300">
+                            <div class="w-16 h-16 bg-yellow-500 rounded-full flex items-center justify-center shadow-xl">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="black"><path d="m7 4 12 8-12 8V4z"/></svg>
+                            </div>
+                        </div>
+
+                        <span class="absolute top-3 left-3 bg-red-600 text-[10px] font-bold px-2 py-1 rounded uppercase animate-pulse">Live</span>
+                    </div>
+
+                    <div class="p-5">
+                        <h3 class="text-lg font-bold leading-tight group-hover:text-yellow-500 transition-colors">{{ match.title }}</h3>
+                        <a href="{{ match.url }}" target="_blank" class="mt-4 block w-full text-center py-2 bg-white/5 rounded-lg text-sm font-semibold hover:bg-white hover:text-black transition-all">Watch Stream</a>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+        {% endfor %}
+    </main>
+</body>
+</html>
         #chat-history::-webkit-scrollbar-thumb {
             background-color: #cbd5e1;
             border-radius: 4px;
