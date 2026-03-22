@@ -9,14 +9,14 @@
 </head>
 <body class="bg-zinc-950 text-white p-6 sm:p-10">
     <div class="max-w-4xl mx-auto">
-        <div class="flex justify-between items-center mb-10 border-b border-white/10 pb-6">
-            <h1 class="text-xl font-black italic tracking-tighter">FUTBOL26 <span class="text-yellow-500">CONTROL</span></h1>
-            <a href="/" class="text-xs font-bold border border-white/20 px-4 py-2 rounded">VIEW FRONTEND</a>
-        </div>
+        <header class="flex justify-between items-center mb-10 border-b border-white/10 pb-6">
+            <h1 class="text-xl font-black italic tracking-tighter">FUTBOL26 <span class="text-yellow-500">ADMIN</span></h1>
+            <a href="/" class="text-xs font-bold border border-white/20 px-4 py-2 rounded uppercase">Exit Admin</a>
+        </header>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-10">
-            <form method="POST" class="md:col-span-1 space-y-4 bg-zinc-900 p-6 rounded-xl border border-white/5 h-fit">
-                <input type="text" name="section_name" placeholder="Section (e.g. LaLiga)" class="w-full bg-zinc-800 p-3 rounded text-sm outline-none border border-white/5 focus:border-yellow-500 transition" required>
+            <form action="/add_match" method="POST" class="md:col-span-1 space-y-4 bg-zinc-900 p-6 rounded-xl border border-white/5 h-fit">
+                <input type="text" name="section_name" placeholder="League Name" class="w-full bg-zinc-800 p-3 rounded text-sm outline-none border border-white/5 focus:border-yellow-500 transition" required>
                 <input type="text" name="title" placeholder="Match Title" class="w-full bg-zinc-800 p-3 rounded text-sm outline-none border border-white/5 focus:border-yellow-500 transition" required>
                 <input type="url" name="url" placeholder="Stream Link (.m3u8)" class="w-full bg-zinc-800 p-3 rounded text-sm outline-none border border-white/5 focus:border-yellow-500 transition" required>
                 <input type="url" name="thumb" placeholder="Thumbnail URL" class="w-full bg-zinc-800 p-3 rounded text-sm outline-none border border-white/5 focus:border-yellow-500 transition">
