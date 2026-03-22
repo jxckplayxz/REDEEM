@@ -8,41 +8,40 @@
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
-        body { background: #000; color: #fff; font-family: 'Inter', sans-serif; }
-        .match-card { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-        .match-card:hover { transform: scale(1.02); box-shadow: 0 0 30px rgba(234, 179, 8, 0.2); }
-        /* Hide default video controls in some browsers to use our custom ones */
+        body { background: #000; color: #fff; font-family: 'Inter', sans-serif; overflow-x: hidden; }
+        .match-card { transition: all 0.3s ease; }
+        .match-card:hover { transform: scale(1.02); box-shadow: 0 0 40px rgba(234, 179, 8, 0.25); }
         video::-webkit-media-controls { display:none !important; }
     </style>
 </head>
 <body class="pb-20">
-    <nav class="sticky top-0 z-50 bg-black/80 backdrop-blur-lg border-b border-white/10 px-6 py-4 flex justify-between items-center">
+    <nav class="sticky top-0 z-50 bg-black/80 backdrop-blur-xl border-b border-white/10 px-6 py-5 flex justify-between items-center">
         <div class="flex items-center gap-2">
             <i data-lucide="zap" class="text-yellow-500 fill-yellow-500"></i>
-            <span class="text-xl font-black italic uppercase tracking-tighter">FUTBOL<span class="text-yellow-500">26</span></span>
+            <span class="text-2xl font-black italic uppercase tracking-tighter">FUTBOL<span class="text-yellow-500">26</span></span>
         </div>
     </nav>
 
-    <main class="max-w-6xl mx-auto px-6 mt-10">
+    <main class="max-w-7xl mx-auto px-6 mt-12">
         {% for section in sections %}
-        <div class="mb-12">
-            <h2 class="text-[10px] font-black uppercase tracking-[0.4em] text-white/40 mb-6 flex items-center gap-4">
-                {{ section.name }} <span class="h-[1px] flex-1 bg-white/10"></span>
+        <div class="mb-16">
+            <h2 class="text-[10px] font-black uppercase tracking-[0.5em] text-white/30 mb-8 flex items-center gap-4">
+                {{ section.name }} <span class="h-[1px] flex-1 bg-white/5"></span>
             </h2>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
                 {% for match in section.matches %}
-                <div onclick="openPlayer('{{ match.url }}', '{{ match.title }}')" class="match-card group cursor-pointer bg-zinc-900 rounded-xl overflow-hidden border border-white/5">
+                <div onclick="openPlayer('{{ match.url }}', '{{ match.title }}')" class="match-card group cursor-pointer bg-zinc-900/50 rounded-2xl overflow-hidden border border-white/5">
                     <div class="relative aspect-video">
                         <img src="{{ match.thumb }}" class="w-full h-full object-cover">
                         <div class="absolute inset-0 bg-black/40 group-hover:bg-transparent transition-all"></div>
-                        <div class="absolute inset-0 flex items-center justify-center">
-                            <div class="w-12 h-12 bg-yellow-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all">
+                        <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all">
+                            <div class="w-14 h-14 bg-yellow-500 rounded-full flex items-center justify-center shadow-2xl scale-75 group-hover:scale-100 transition-transform">
                                 <i data-lucide="play" class="fill-black text-black ml-1"></i>
                             </div>
                         </div>
-                        <div class="absolute top-3 left-3 bg-red-600 px-2 py-1 rounded text-[9px] font-black uppercase animate-pulse">Live</div>
+                        <div class="absolute top-4 left-4 bg-red-600 px-3 py-1 rounded-md text-[10px] font-black uppercase animate-pulse">Live</div>
                     </div>
-                    <div class="p-4"><h3 class="font-bold text-sm uppercase">{{ match.title }}</h3></div>
+                    <div class="p-5"><h3 class="font-bold text-base uppercase tracking-tight">{{ match.title }}</h3></div>
                 </div>
                 {% endfor %}
             </div>
@@ -50,28 +49,21 @@
         {% endfor %}
     </main>
 
-    <div id="playerModal" class="fixed inset-0 z-[100] hidden bg-black/95 flex items-center justify-center p-0 md:p-4">
-        <div id="videoWrapper" class="w-full max-w-4xl relative bg-black md:rounded-2xl overflow-hidden ring-1 ring-white/10 aspect-video">
-            <video id="video" class="w-full h-full" playsinline muted autoplay preload="auto"></video>
+    <div id="playerModal" class="fixed inset-0 z-[100] hidden bg-black/98 flex items-center justify-center">
+        <div id="videoWrapper" class="w-full max-w-5xl relative aspect-video bg-black shadow-2xl">
+            <video id="video" class="w-full h-full" playsinline muted autoplay></video>
             
-            <button onclick="closePlayer()" class="absolute top-4 right-4 z-[110] text-white/50 hover:text-white transition">
-                <i data-lucide="x" class="w-8 h-8"></i>
+            <button onclick="closePlayer()" class="absolute top-6 right-6 z-[110] text-white/40 hover:text-white transition">
+                <i data-lucide="x" class="w-10 h-10"></i>
             </button>
 
-            <div class="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black via-black/60 to-transparent opacity-0 hover:opacity-100 transition-opacity duration-300 flex items-center gap-4">
-                <button onclick="togglePlay()" class="text-white hover:text-yellow-500 transition">
-                    <i data-lucide="pause" id="playIcon"></i>
-                </button>
-                
-                <h2 id="modalTitle" class="text-white font-bold uppercase tracking-tighter text-sm truncate flex-1"></h2>
-
-                <button onclick="syncLive()" class="bg-yellow-500 text-black px-3 py-1.5 rounded-md font-black text-[9px] uppercase tracking-widest hover:bg-white transition">
-                    Sync Live
-                </button>
-
-                <button onclick="toggleFullscreen()" class="text-white hover:text-yellow-500 transition">
-                    <i data-lucide="maximize" class="w-5 h-5"></i>
-                </button>
+            <div class="absolute bottom-0 left-0 right-0 p-8 bg-gradient-to-t from-black via-black/40 to-transparent opacity-0 hover:opacity-100 transition-opacity flex items-center gap-6">
+                <button onclick="togglePlay()" class="text-white hover:text-yellow-500"><i data-lucide="pause" id="playIcon"></i></button>
+                <div class="flex-1">
+                    <p id="modalTitle" class="text-white font-black uppercase italic text-sm tracking-widest"></p>
+                </div>
+                <button onclick="syncLive()" class="bg-yellow-500 text-black px-4 py-2 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-white transition">Sync Live</button>
+                <button onclick="toggleFullscreen()" class="text-white hover:text-yellow-500"><i data-lucide="maximize" class="w-6 h-6"></i></button>
             </div>
         </div>
     </div>
@@ -85,32 +77,19 @@
         function openPlayer(url, title) {
             document.getElementById('modalTitle').innerText = title;
             modal.classList.remove('hidden');
+            
+            // USE PROXY TO BYPASS BLACK SCREEN
+            const finalUrl = `/proxy?url=${encodeURIComponent(url)}`;
 
             if (Hls.isSupported() && url.includes('.m3u8')) {
                 if (hls) hls.destroy();
-                hls = new Hls({
-                    debug: false,
-                    enableWorker: true,
-                    lowLatencyMode: true
-                });
-                hls.loadSource(url);
+                hls = new Hls({ lowLatencyMode: true });
+                hls.loadSource(finalUrl);
                 hls.attachMedia(video);
-                hls.on(Hls.Events.MANIFEST_PARSED, function() {
-                    video.play().catch(() => console.log("User interaction required"));
-                });
-                
-                // Fix for black screen: reload if it stalls
-                hls.on(Hls.Events.ERROR, function (event, data) {
-                    if (data.fatal) {
-                        switch (data.type) {
-                            case Hls.ErrorTypes.NETWORK_ERROR: hls.startLoad(); break;
-                            case Hls.ErrorTypes.MEDIA_ERROR: hls.recoverMediaError(); break;
-                            default: hls.destroy(); break;
-                        }
-                    }
-                });
+                hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
+                hls.on(Hls.Events.ERROR, (e, d) => { if(d.fatal) hls.recoverMediaError(); });
             } else {
-                video.src = url;
+                video.src = finalUrl;
                 video.play();
             }
         }
@@ -119,41 +98,12 @@
             if (document.fullscreenElement) document.exitFullscreen();
             modal.classList.add('hidden');
             video.pause();
-            video.src = "";
             if (hls) { hls.destroy(); hls = null; }
         }
 
-        function togglePlay() {
-            const icon = document.getElementById('playIcon');
-            if (video.paused) {
-                video.play();
-                icon.setAttribute('data-lucide', 'pause');
-            } else {
-                video.pause();
-                icon.setAttribute('data-lucide', 'play');
-            }
-            lucide.createIcons();
-        }
-
-        function syncLive() {
-            video.currentTime = video.duration;
-            video.play();
-        }
-
-        function toggleFullscreen() {
-            if (!document.fullscreenElement) {
-                wrapper.requestFullscreen().catch(err => {
-                    alert(`Error attempting to enable full-screen mode: ${err.message}`);
-                });
-            } else {
-                document.exitFullscreen();
-            }
-        }
-
-        // Listen for Esc key to close player
-        document.addEventListener('keydown', (e) => {
-            if (e.key === "Escape") closePlayer();
-        });
+        function togglePlay() { video.paused ? video.play() : video.pause(); }
+        function syncLive() { video.currentTime = video.duration; video.play(); }
+        function toggleFullscreen() { document.fullscreenElement ? document.exitFullscreen() : wrapper.requestFullscreen(); }
 
         lucide.createIcons();
     </script>
