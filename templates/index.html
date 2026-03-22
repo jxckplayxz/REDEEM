@@ -1,53 +1,97 @@
-import json
-import os
-from flask import Flask, render_template, request, redirect, url_for
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Futbol26 | Live Soccer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+        body { background: #000; color: #fff; font-family: 'Inter', sans-serif; }
+        .match-card { transition: transform 0.3s ease, box-shadow 0.3s ease; }
+        .match-card:hover { transform: translateY(-5px); box-shadow: 0 10px 30px -10px rgba(234, 179, 8, 0.3); }
+    </style>
+</head>
+<body class="pb-10">
 
-app = Flask(__name__)
-DATA_FILE = 'data.json'
+    <nav class="sticky top-0 z-50 bg-black/90 backdrop-blur-md border-b border-white/10 px-6 py-4 flex justify-between items-center">
+        <div class="flex items-center gap-2">
+            <i data-lucide="play" class="fill-yellow-500 text-yellow-500 w-6 h-6"></i>
+            <span class="text-xl font-black uppercase italic tracking-tighter">FUTBOL<span class="text-yellow-500">26</span></span>
+        </div>
+        <a href="/admin" class="text-[10px] font-bold tracking-widest bg-white/5 border border-white/10 px-4 py-2 rounded hover:bg-white hover:text-black transition">ADMIN</a>
+    </nav>
 
-def load_data():
-    if not os.path.exists(DATA_FILE):
-        return {"sections": []}
-    with open(DATA_FILE, 'r') as f:
-        return json.load(f)
+    <main class="max-w-7xl mx-auto px-6 mt-10">
+        {% for section in sections %}
+        <div class="mb-12">
+            <h2 class="text-xs font-black uppercase tracking-[0.4em] text-white/40 mb-6 flex items-center gap-4">
+                {{ section.name }} <span class="h-[1px] flex-1 bg-white/5"></span>
+            </h2>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {% for match in section.matches %}
+                <div onclick="playStream('{{ match.url }}', '{{ match.title }}')" class="match-card group cursor-pointer bg-zinc-900 rounded-xl overflow-hidden ring-1 ring-white/5">
+                    <div class="relative aspect-video">
+                        <img src="{{ match.thumb }}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
+                        <div class="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div class="w-12 h-12 bg-yellow-500 rounded-full flex items-center justify-center shadow-xl">
+                                <i data-lucide="play" class="fill-black text-black ml-1"></i>
+                            </div>
+                        </div>
+                        <div class="absolute top-3 left-3 bg-red-600 px-2 py-1 rounded text-[10px] font-black uppercase animate-pulse">Live</div>
+                    </div>
+                    <div class="p-4"><h3 class="font-bold text-sm truncate uppercase tracking-tight">{{ match.title }}</h3></div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </main>
 
-def save_data(data):
-    with open(DATA_FILE, 'w') as f:
-        json.dump(data, f, indent=4)
+    <div id="playerModal" class="fixed inset-0 z-[100] hidden bg-black/95 flex flex-col items-center justify-center">
+        <button onclick="closePlayer()" class="absolute top-6 right-6 text-white/50 hover:text-white transition"><i data-lucide="x" class="w-8 h-8"></i></button>
+        <div class="w-full max-w-4xl px-4">
+            <h2 id="modalTitle" class="text-lg font-black text-yellow-500 uppercase mb-4 tracking-tighter italic"></h2>
+            <div class="relative bg-black rounded-2xl overflow-hidden shadow-2xl ring-1 ring-white/10 aspect-video">
+                <video id="video" class="w-full h-full" playsinline></video>
+                <div class="absolute bottom-6 left-6 right-6 flex items-center gap-4 opacity-0 hover:opacity-100 transition-opacity duration-300">
+                    <button onclick="togglePlay()" class="bg-white/10 p-3 rounded-full hover:bg-white hover:text-black transition"><i data-lucide="pause" id="playIcon"></i></button>
+                    <button onclick="syncLive()" class="bg-yellow-500 text-black px-4 py-2 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-white transition">Sync to Live</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
-@app.route('/')
-def index():
-    data = load_data()
-    return render_template('index.html', sections=data['sections'])
+    <script>
+        const video = document.getElementById('video');
+        const modal = document.getElementById('playerModal');
+        let hls = new Hls();
 
-@app.route('/admin', methods=['GET', 'POST'])
-def admin():
-    data = load_data()
-    if request.method == 'POST':
-        section_name = request.form.get('section_name')
-        match_data = {
-            "id": os.urandom(4).hex(),
-            "title": request.form.get('title'),
-            "url": request.form.get('url'),
-            "thumb": request.form.get('thumb') or "https://images.unsplash.com/photo-1574629810360-7efbbe195018?auto=format&fit=crop&q=80&w=1000"
+        function playStream(url, title) {
+            document.getElementById('modalTitle').innerText = title;
+            modal.classList.remove('hidden');
+            if (Hls.isSupported() && url.includes('.m3u8')) {
+                hls.loadSource(url);
+                hls.attachMedia(video);
+                hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
+            } else {
+                video.src = url;
+                video.play();
+            }
         }
-        section = next((s for s in data['sections'] if s['name'] == section_name), None)
-        if section:
-            section['matches'].append(match_data)
-        else:
-            data['sections'].append({"name": section_name, "matches": [match_data]})
-        save_data(data)
-        return redirect(url_for('admin'))
-    return render_template('admin.html', sections=data['sections'])
 
-@app.route('/delete/<match_id>')
-def delete_match(match_id):
-    data = load_data()
-    for section in data['sections']:
-        section['matches'] = [m for m in section['matches'] if m['id'] != match_id]
-    data['sections'] = [s for s in data['sections'] if s['matches']]
-    save_data(data)
-    return redirect(url_for('admin'))
+        function closePlayer() {
+            modal.classList.add('hidden');
+            video.pause();
+            hls.destroy();
+            hls = new Hls();
+        }
 
-if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+        function togglePlay() { video.paused ? video.play() : video.pause(); }
+        function syncLive() { video.currentTime = video.duration; video.play(); }
+        lucide.createIcons();
+    </script>
+</body>
+</html>
