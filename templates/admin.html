@@ -3,34 +3,34 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Futbol26 | Admin</title>
+    <title>Futbol26 | Admin Panel</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
-<body class="bg-zinc-950 text-white p-6 sm:p-10">
-    <div class="max-w-4xl mx-auto">
-        <header class="flex justify-between items-center mb-10 border-b border-white/10 pb-6">
-            <h1 class="text-xl font-black italic tracking-tighter">FUTBOL26 <span class="text-yellow-500">ADMIN</span></h1>
-            <a href="/" class="text-xs font-bold border border-white/20 px-4 py-2 rounded uppercase">Exit Admin</a>
+<body class="bg-zinc-950 text-white min-h-screen p-10">
+    <div class="max-w-5xl mx-auto">
+        <header class="flex justify-between items-center mb-12 border-b border-white/10 pb-8">
+            <h1 class="text-3xl font-black italic tracking-tighter uppercase">FUTBOL26 <span class="text-yellow-500">ADMIN</span></h1>
+            <a href="/" class="bg-white text-black px-6 py-2 rounded-full text-xs font-bold uppercase tracking-widest">Exit</a>
         </header>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-10">
-            <form action="/add_match" method="POST" class="md:col-span-1 space-y-4 bg-zinc-900 p-6 rounded-xl border border-white/5 h-fit">
-                <input type="text" name="section_name" placeholder="League Name" class="w-full bg-zinc-800 p-3 rounded text-sm outline-none border border-white/5 focus:border-yellow-500 transition" required>
-                <input type="text" name="title" placeholder="Match Title" class="w-full bg-zinc-800 p-3 rounded text-sm outline-none border border-white/5 focus:border-yellow-500 transition" required>
-                <input type="url" name="url" placeholder="Stream Link (.m3u8)" class="w-full bg-zinc-800 p-3 rounded text-sm outline-none border border-white/5 focus:border-yellow-500 transition" required>
-                <input type="url" name="thumb" placeholder="Thumbnail URL" class="w-full bg-zinc-800 p-3 rounded text-sm outline-none border border-white/5 focus:border-yellow-500 transition">
-                <button type="submit" class="w-full bg-yellow-500 text-black font-black py-3 rounded text-[10px] tracking-widest hover:bg-white transition uppercase">Publish Live</button>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-12">
+            <form action="/add_match" method="POST" class="lg:col-span-1 space-y-5 bg-zinc-900 p-8 rounded-3xl border border-white/5 h-fit">
+                <input type="text" name="section_name" placeholder="League Name" class="w-full bg-zinc-800 p-4 rounded-xl outline-none focus:ring-2 focus:ring-yellow-500 text-sm" required>
+                <input type="text" name="title" placeholder="Match Title" class="w-full bg-zinc-800 p-4 rounded-xl outline-none focus:ring-2 focus:ring-yellow-500 text-sm" required>
+                <input type="url" name="url" placeholder="Stream URL (.m3u8)" class="w-full bg-zinc-800 p-4 rounded-xl outline-none focus:ring-2 focus:ring-yellow-500 text-sm" required>
+                <input type="url" name="thumb" placeholder="Thumbnail URL" class="w-full bg-zinc-800 p-4 rounded-xl outline-none focus:ring-2 focus:ring-yellow-500 text-sm">
+                <button type="submit" class="w-full bg-yellow-500 text-black font-black py-4 rounded-xl text-xs tracking-[0.2em] hover:bg-white transition uppercase">Publish Live</button>
             </form>
 
-            <div class="md:col-span-2 space-y-6">
+            <div class="lg:col-span-2 space-y-6">
                 {% for section in sections %}
-                <div class="bg-zinc-900/50 rounded-xl p-5 border border-white/5">
-                    <h3 class="text-yellow-500 text-[10px] font-black tracking-widest uppercase mb-4">{{ section.name }}</h3>
+                <div class="bg-zinc-900/50 rounded-3xl p-8 border border-white/5">
+                    <h3 class="text-yellow-500 text-[10px] font-black tracking-[0.4em] uppercase mb-6">{{ section.name }}</h3>
                     {% for match in section.matches %}
-                    <div class="flex items-center justify-between py-3 border-t border-white/5">
-                        <span class="text-sm font-bold">{{ match.title }}</span>
-                        <a href="/delete/{{ match.id }}" class="text-zinc-600 hover:text-red-500 transition"><i data-lucide="trash-2" class="w-4 h-4"></i></a>
+                    <div class="flex items-center justify-between py-4 border-t border-white/5">
+                        <span class="font-bold text-sm tracking-tight">{{ match.title }}</span>
+                        <a href="/delete/{{ match.id }}" class="text-zinc-500 hover:text-red-500 transition"><i data-lucide="trash-2" class="w-5 h-5"></i></a>
                     </div>
                     {% endfor %}
                 </div>
